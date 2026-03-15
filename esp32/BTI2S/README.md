@@ -1,5 +1,8 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
+## Current version
+0.1.0
+
 ## Summary
 
 Arduino sketch for ESP32 that:
