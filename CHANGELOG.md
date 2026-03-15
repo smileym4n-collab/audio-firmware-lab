@@ -16,6 +16,20 @@ All notable changes to this repository will be recorded here.
 
 ---
 
+## [0.3.0] - 2026-03-15
+
+### Changed
+- `esp32/BTI2S` adds rotary encoder volume control (`IO32/IO33`) and mute toggle on encoder switch (`IO35`) while keeping the existing I2S pin map unchanged
+
+---
+
+## [0.2.0] - 2026-03-15
+
+### Changed
+- `esp32/BTI2S` now applies a short startup mute hold on I2S pins to reduce power-on pops while A2DP/I2S initializes
+
+---
+
 ## [0.1.0] - 2026-03-15
 
 ### Added
