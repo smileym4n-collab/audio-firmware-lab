@@ -10,7 +10,7 @@ Arduino with megaTinyCore
 Single-channel or stereo LM1971 volume control using an ATtiny412.
 
 ## Pin map
-- PA0 -> UDPI header
+- PA0 -> UPDI header
 - PA1 -> Potentiometer wiper
 - PA2 -> LM1971 DATA
 - PA3 -> LM1971 CLOCK
