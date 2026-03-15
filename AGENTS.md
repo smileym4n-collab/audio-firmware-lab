@@ -21,6 +21,14 @@ Main goals:
 - `attiny/1616/` — ATtiny1616 projects
 - `docs/` — shared documentation such as pin maps, behaviour notes, and coding rules
 
+- ## Changelog rules
+
+- Update `CHANGELOG.md` for every user-visible or behaviour-changing change.
+- Add new work under `## [Unreleased]` unless explicitly creating a versioned release.
+- When preparing a release, move relevant items from `Unreleased` into a dated version section.
+- Keep entries short, specific, and human-readable.
+- Do not add changelog entries for trivial formatting-only edits unless explicitly requested.
+
 - ## Branching and pull requests
 
 - Every task must start from the latest `main`.
