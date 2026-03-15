@@ -7,27 +7,30 @@ ATtiny412
 Arduino with megaTinyCore
 
 ## Purpose
-Single-channel or stereo LM1971 volume control using an ATtiny412.
+Control an LM1971 volume IC from a potentiometer.
 
 ## Pin map
 - PA0 -> UPDI header
-- PA1 -> Potentiometer wiper
+- PA1 -> Potentiometer wiper (ADC input)
 - PA2 -> LM1971 DATA
 - PA3 -> LM1971 CLOCK
 - PA6 -> LM1971 LOAD
 
-## Electrical assumptions
-- LM1971 logic powered from 5 V
-- ATtiny412 powered from 5 V
-- Push button(s) use internal pull-ups unless noted otherwise
-- Pot wired between 5 V and GND, wiper to ADC pin
-
 ## Behaviour
-- Power up muted
-- Read pot and set attenuation
-- Optional soft-start fade
-- Button toggles mute
+- Startup writes mute for a conservative safe state.
+- Potentiometer position is read continuously.
+- Pot near minimum sends mute.
+- Remaining range maps to LM1971 attenuation values.
 
-## Notes
-- Preserve existing volume behaviour unless explicitly asked to change it
-- Keep code simple and compile-ready
+## Assumptions
+- Pot ends are connected to VCC and GND.
+- LM1971 and ATtiny412 logic levels are compatible.
+- LM1971 commands used by this sketch:
+  - `0x00` = 0 dB (max volume)
+  - `0x4F` = -79 dB (minimum non-mute)
+  - `0x50` = mute
+
+## Build/upload
+- Board package: megaTinyCore
+- Board: ATtiny412
+- Upload method: UPDI
