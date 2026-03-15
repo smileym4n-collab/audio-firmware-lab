@@ -13,6 +13,15 @@ Main goals:
 - preserve known-good behaviour unless explicitly told to change it
 - prefer robustness and clarity over clever abstractions
 
+
+## Versioning rules
+
+- Read the current version from the project README and source header before making changes.
+- For behaviour changes or new features, bump the minor version.
+- For bug fixes that do not change intended behaviour, bump the patch version.
+- Update both the source header and project README version.
+- Update CHANGELOG.md for every version bump.
+- 
 ## Repository layout
 
 - `esp32/` — ESP32-based firmware projects
