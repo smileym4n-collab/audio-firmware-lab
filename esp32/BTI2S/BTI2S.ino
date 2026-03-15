@@ -1,4 +1,8 @@
 /*
+
+// BTI2S
+// Version: 0.1.0
+
   Project: BTI2S
   Target: ESP32 (Arduino framework)
 
