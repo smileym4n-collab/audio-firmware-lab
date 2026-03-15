@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.1.0
+0.3.0
 
 ## Summary
 
@@ -20,12 +20,19 @@ Arduino sketch for ESP32 that:
 - `IO25` -> `LRCK` (I2S word select / WS)
 - `IO26` -> `BCK` (I2S bit clock / SCK)
 - `IO13` -> `DATA` (I2S serial data out)
+- `IO35` -> `ENC-SW` (rotary encoder push switch)
+- `IO32` -> `ENC-A` (rotary encoder channel A)
+- `IO33` -> `ENC-B` (rotary encoder channel B)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
 ## Behaviour
 
 - On boot, sketch loads Bluetooth name from NVS.
 - If no saved name exists, default name is `BTI2S`.
+- Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
+- Rotary encoder controls volume in 2% steps.
+- Pressing the encoder switch toggles mute/unmute.
+- Turning the encoder while muted unmutes and applies the new volume.
 - ESP32 starts A2DP sink and outputs I2S audio on the pins above.
 - Serial command can rename the Bluetooth device:
   - baud: `115200`
@@ -50,3 +57,4 @@ Install this Arduino library:
 - Receiver hardware connected to I2S pins accepts standard ESP32 I2S timing.
 - No external MCLK is required by the downstream DAC/device.
 - Bluetooth source device supports A2DP audio streaming.
+- `IO35` is input-only and does not provide an internal pull-up, so ENC-SW needs suitable external biasing.
