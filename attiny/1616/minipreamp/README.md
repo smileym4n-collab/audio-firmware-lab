@@ -1,6 +1,6 @@
 # minipreamp
 
-Version: 0.2.0
+Version: 0.3.1
 
 ATtiny1616 mini preamp controller sketch for megaTinyCore.
 
@@ -9,6 +9,8 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
 - Framework: Arduino (megaTinyCore)
 
 ## Pin map (fixed)
+- `PA1` - `AS1115_SDA` (I2C data for 3-digit 7-segment display)
+- `PA2` - `AS1115_SCL` (I2C clock for 3-digit 7-segment display)
 - `PA4` - `IN_SEL_ADC` (logic input for source selection)
 - `PB0` - `VOL_ADC` (potentiometer wiper for volume)
 - `PB3` - `PGA2311_MUTE`
@@ -29,6 +31,8 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
   - `0` = linear mapping
   - `100` = fully log-like mapping (square-law audio taper)
   - values in-between blend linear and log-like responses
+- Shows current volume on a 3-digit AS1115 display as `0..100` percent.
+- AS1115 outer digits are mapped with digit 1/3 swapped to match the current display wiring.
 - Drives one TLC5916 LED per selected input.
 - Uses safe startup defaults (mute asserted and relays off before applying initial state).
 
@@ -36,6 +40,7 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
 - `PGA2311_MUTE` is active-low (`LOW = mute`, `HIGH = unmute`).
 - ULN2003A channel input HIGH energizes the associated relay.
 - TLC5916 output bit `1` enables current sink for that LED channel.
+- AS1115 I2C 7-bit address is set to `0x00` in firmware (`AS1115_I2C_ADDR`) and should be adjusted if your address straps differ.
 
 ## Build / upload notes
 - Open `minipreamp.ino` in Arduino IDE configured with megaTinyCore.
