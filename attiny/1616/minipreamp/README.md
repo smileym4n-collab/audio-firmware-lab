@@ -1,6 +1,6 @@
 # minipreamp
 
-Version: 0.3.1
+Version: 0.5.0
 
 ATtiny1616 mini preamp controller sketch for megaTinyCore.
 
@@ -14,8 +14,10 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
 - `PA4` - `IN_SEL_ADC` (logic input for source selection)
 - `PB0` - `VOL_ADC` (potentiometer wiper for volume)
 - `PB3` - `PGA2311_MUTE`
-- `PB4` - `RELAY1` (ULN2003A channel input)
-- `PB5` - `RELAY2` (ULN2003A channel input)
+- `PB4` - `RELAY1` (ULN2003A primary channel input)
+- `PB5` - `RELAY2` (ULN2003A primary channel input)
+- `PB1` - `RELAY1_PAIR` (ULN2003A paired channel; active with `RELAY1`)
+- `PA3` - `RELAY2_PAIR` (ULN2003A paired channel; active with `RELAY2`)
 - `PC0` - shared clock for TLC5916 + PGA2311
 - `PC1` - shared data for TLC5916 + PGA2311
 - `PC2` - `LE` for TLC5916
@@ -23,10 +25,11 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
 
 ## Behaviour summary
 - Reads `IN_SEL_ADC` as a digital level:
-  - LOW selects input 1 (`RELAY1` active, `RELAY2` inactive)
-  - HIGH selects input 2 (`RELAY2` active, `RELAY1` inactive)
+  - LOW selects input 1 (`RELAY1` and `RELAY1_PAIR` active, `RELAY2` and `RELAY2_PAIR` inactive)
+  - HIGH selects input 2 (`RELAY2` and `RELAY2_PAIR` active, `RELAY1` and `RELAY1_PAIR` inactive)
 - Reads `VOL_ADC` and maps it to PGA2311 code range `0x00..0xCF`.
 - Volume is capped at `0 dB` (`0xCF`), so positive gain is never commanded.
+- Volume input safety guard rejects one-off large ADC jumps; repeated suspicious jumps force `PGA2311_MUTE` active until the ADC input is stable again.
 - Supports adjustable taper with `VOLUME_CURVE_BLEND_PERCENT` in `minipreamp.ino`:
   - `0` = linear mapping
   - `100` = fully log-like mapping (square-law audio taper)

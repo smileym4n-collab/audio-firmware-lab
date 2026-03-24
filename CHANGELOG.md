@@ -4,6 +4,11 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Changed
+- `attiny/1616/minipreamp` now drives paired ULN2003A relay outputs: `PB1` follows `RELAY1` and `PA3` follows `RELAY2`
+- `attiny/1616/minipreamp` adds ADC-jump filtering and a safety mute trip on repeated suspicious volume readings
+- `attiny/1616/minipreamp` version bumped to `0.5.0`
+
 ### Added
 - Initial repository structure for ESP32 and ATtiny projects
 - Root `AGENTS.md` with coding and PR workflow rules
