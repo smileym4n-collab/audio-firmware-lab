@@ -1,10 +1,10 @@
 /*
   minipreamp.ino - ATtiny1616 mini preamp controller
-  Version: 0.3.1
+  Version: 0.5.0
 
   Controls:
   - PGA2311 volume IC (stereo, capped at 0 dB max gain)
-  - 2 relay input selection through ULN2003A
+  - 4 relay outputs through ULN2003A (paired per selected input)
   - 2 input indicator LEDs through TLC5916
   - 3-digit 7-segment display via AS1115 (I2C)
 
@@ -20,8 +20,10 @@ static const uint8_t AS1115_SDA_PIN = PIN_PA1;  // AS1115 I2C data
 static const uint8_t AS1115_SCL_PIN = PIN_PA2;  // AS1115 I2C clock
 static const uint8_t VOL_ADC_PIN     = PIN_PB0;  // Potentiometer wiper for volume
 static const uint8_t PGA_MUTE_PIN    = PIN_PB3;  // PGA2311 mute control
-static const uint8_t RELAY1_PIN      = PIN_PB4;  // Relay 1 drive (via ULN2003A)
-static const uint8_t RELAY2_PIN      = PIN_PB5;  // Relay 2 drive (via ULN2003A)
+static const uint8_t RELAY1_PIN      = PIN_PB4;  // Relay 1 primary drive (via ULN2003A)
+static const uint8_t RELAY1_AUX_PIN  = PIN_PB1;  // Relay 1 paired drive (via ULN2003A)
+static const uint8_t RELAY2_PIN      = PIN_PB5;  // Relay 2 primary drive (via ULN2003A)
+static const uint8_t RELAY2_AUX_PIN  = PIN_PA3;  // Relay 2 paired drive (via ULN2003A)
 static const uint8_t CLOCK_PIN       = PIN_PC0;  // Shared shift clock (TLC5916 + PGA2311)
 static const uint8_t DATA_PIN        = PIN_PC1;  // Shared shift data  (TLC5916 + PGA2311)
 static const uint8_t TLC_LE_PIN      = PIN_PC2;  // TLC5916 latch enable
@@ -61,11 +63,27 @@ static const uint8_t VOLUME_CURVE_BLEND_PERCENT = 60;
 static const uint16_t INPUT_POLL_MS  = 10;
 static const uint16_t VOLUME_POLL_MS = 10;
 
+// Volume safety guard
+// Reject single-sample ADC jumps larger than this threshold.
+static const uint16_t VOLUME_ADC_JUMP_THRESHOLD = 220;
+// Two similar large-jump samples in a row are treated as intentional/real.
+static const uint16_t VOLUME_ADC_CONFIRM_THRESHOLD = 24;
+// If too many suspicious jumps are observed, force mute for safety.
+static const uint8_t VOLUME_FAULT_TRIP_COUNT = 12;
+// Number of accepted samples required to auto-clear safety mute.
+static const uint8_t VOLUME_FAULT_CLEAR_ACCEPT_COUNT = 24;
+
 static bool g_input2Selected = false;
 static uint8_t g_lastPgaCode = PGA_CODE_MIN;
 static uint8_t g_lastVolumePercent = 0xFF;
 static uint32_t g_lastInputPollMs = 0;
 static uint32_t g_lastVolumePollMs = 0;
+static uint16_t g_lastAcceptedVolumeAdc = 0;
+static uint16_t g_pendingJumpAdc = 0;
+static uint8_t g_suspiciousJumpCount = 0;
+static uint8_t g_faultClearAcceptCount = 0;
+static bool g_hasPendingJump = false;
+static bool g_volumeSafetyMuted = false;
 
 static inline void i2cSdaHigh()
 {
@@ -237,6 +255,70 @@ static uint8_t volumeAdcToPgaCode(uint16_t adc)
   return static_cast<uint8_t>(scaled + PGA_CODE_MIN);
 }
 
+
+static uint16_t adcAbsDiff(uint16_t a, uint16_t b)
+{
+  return (a > b) ? static_cast<uint16_t>(a - b) : static_cast<uint16_t>(b - a);
+}
+
+static bool acceptVolumeAdc(uint16_t adc)
+{
+  if (adc > 1023u) {
+    adc = 1023u;
+  }
+
+  const uint16_t jump = adcAbsDiff(adc, g_lastAcceptedVolumeAdc);
+  if (jump <= VOLUME_ADC_JUMP_THRESHOLD) {
+    g_hasPendingJump = false;
+    g_suspiciousJumpCount = 0;
+    g_lastAcceptedVolumeAdc = adc;
+    return true;
+  }
+
+  if (g_hasPendingJump && (adcAbsDiff(adc, g_pendingJumpAdc) <= VOLUME_ADC_CONFIRM_THRESHOLD)) {
+    g_hasPendingJump = false;
+    g_suspiciousJumpCount = 0;
+    g_lastAcceptedVolumeAdc = adc;
+    return true;
+  }
+
+  g_pendingJumpAdc = adc;
+  g_hasPendingJump = true;
+
+  if (g_suspiciousJumpCount < 0xFFu) {
+    ++g_suspiciousJumpCount;
+  }
+
+  if ((g_suspiciousJumpCount >= VOLUME_FAULT_TRIP_COUNT) && !g_volumeSafetyMuted) {
+    g_volumeSafetyMuted = true;
+    g_faultClearAcceptCount = 0;
+    digitalWrite(PGA_MUTE_PIN, LOW);  // Safety mute on repeated suspicious ADC jumps
+  }
+
+  return false;
+}
+
+static void updateVolumeSafetyMuteState(bool acceptedSample)
+{
+  if (!g_volumeSafetyMuted) {
+    return;
+  }
+
+  if (acceptedSample) {
+    if (g_faultClearAcceptCount < 0xFFu) {
+      ++g_faultClearAcceptCount;
+    }
+  } else {
+    g_faultClearAcceptCount = 0;
+  }
+
+  if (g_faultClearAcceptCount >= VOLUME_FAULT_CLEAR_ACCEPT_COUNT) {
+    g_volumeSafetyMuted = false;
+    g_faultClearAcceptCount = 0;
+    digitalWrite(PGA_MUTE_PIN, HIGH);  // Auto-unmute after stable accepted samples
+  }
+}
+
 static uint8_t pgaCodeToPercent(uint8_t pgaCode)
 {
   if (pgaCode > PGA_CODE_MAX) {
@@ -252,11 +334,15 @@ static void applyInputSelection(bool input2)
 
   if (g_input2Selected) {
     digitalWrite(RELAY1_PIN, LOW);
+    digitalWrite(RELAY1_AUX_PIN, LOW);
     digitalWrite(RELAY2_PIN, HIGH);
+    digitalWrite(RELAY2_AUX_PIN, HIGH);
     writeTlcLeds(LED_INPUT2_MASK);
   } else {
     digitalWrite(RELAY1_PIN, HIGH);
+    digitalWrite(RELAY1_AUX_PIN, HIGH);
     digitalWrite(RELAY2_PIN, LOW);
+    digitalWrite(RELAY2_AUX_PIN, LOW);
     writeTlcLeds(LED_INPUT1_MASK);
   }
 }
@@ -270,7 +356,9 @@ void setup()
 
   pinMode(PGA_MUTE_PIN, OUTPUT);
   pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY1_AUX_PIN, OUTPUT);
   pinMode(RELAY2_PIN, OUTPUT);
+  pinMode(RELAY2_AUX_PIN, OUTPUT);
   pinMode(CLOCK_PIN, OUTPUT);
   pinMode(DATA_PIN, OUTPUT);
   pinMode(TLC_LE_PIN, OUTPUT);
@@ -278,8 +366,10 @@ void setup()
 
   // Safe startup defaults
   digitalWrite(PGA_MUTE_PIN, LOW);   // Keep audio muted during setup
-  digitalWrite(RELAY1_PIN, LOW);     // Keep both relays inactive until selection is known
+  digitalWrite(RELAY1_PIN, LOW);     // Keep all relays inactive until selection is known
+  digitalWrite(RELAY1_AUX_PIN, LOW);
   digitalWrite(RELAY2_PIN, LOW);
+  digitalWrite(RELAY2_AUX_PIN, LOW);
   digitalWrite(CLOCK_PIN, LOW);
   digitalWrite(DATA_PIN, LOW);
   digitalWrite(TLC_LE_PIN, LOW);
@@ -289,7 +379,8 @@ void setup()
   applyInputSelection(digitalRead(IN_SEL_ADC_PIN) == HIGH);
 
   const uint16_t initialAdc = analogRead(VOL_ADC_PIN);
-  g_lastPgaCode = volumeAdcToPgaCode(initialAdc);
+  g_lastAcceptedVolumeAdc = (initialAdc > 1023u) ? 1023u : initialAdc;
+  g_lastPgaCode = volumeAdcToPgaCode(g_lastAcceptedVolumeAdc);
   writePgaVolume(g_lastPgaCode, g_lastPgaCode);
 
   as1115Init();
@@ -316,7 +407,14 @@ void loop()
     g_lastVolumePollMs = nowMs;
 
     const uint16_t volumeAdc = analogRead(VOL_ADC_PIN);
-    const uint8_t pgaCode = volumeAdcToPgaCode(volumeAdc);
+    const bool acceptedSample = acceptVolumeAdc(volumeAdc);
+    updateVolumeSafetyMuteState(acceptedSample);
+
+    if (!acceptedSample) {
+      return;
+    }
+
+    const uint8_t pgaCode = volumeAdcToPgaCode(g_lastAcceptedVolumeAdc);
 
     if (pgaCode != g_lastPgaCode) {
       g_lastPgaCode = pgaCode;
