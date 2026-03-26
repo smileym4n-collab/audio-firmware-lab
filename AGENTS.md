@@ -13,6 +13,15 @@ Main goals:
 - preserve known-good behaviour unless explicitly told to change it
 - prefer robustness and clarity over clever abstractions
 
+
+## Versioning rules
+
+- Read the current version from the project README and source header before making changes.
+- For behaviour changes or new features, bump the minor version.
+- For bug fixes that do not change intended behaviour, bump the patch version.
+- Update both the source header and project README version.
+- Update CHANGELOG.md for every version bump.
+- 
 ## Repository layout
 
 - `esp32/` — ESP32-based firmware projects
@@ -20,6 +29,21 @@ Main goals:
 - `attiny/412/` — ATtiny412 projects
 - `attiny/1616/` — ATtiny1616 projects
 - `docs/` — shared documentation such as pin maps, behaviour notes, and coding rules
+
+- ## Changelog rules
+
+- Update `CHANGELOG.md` for every user-visible or behaviour-changing change.
+- Add new work under `## [Unreleased]` unless explicitly creating a versioned release.
+- When preparing a release, move relevant items from `Unreleased` into a dated version section.
+- Keep entries short, specific, and human-readable.
+- Do not add changelog entries for trivial formatting-only edits unless explicitly requested.
+
+- ## Branching and pull requests
+
+- Every task must start from the latest `main`.
+- Create a new branch and a new PR for every task.
+- Never continue from an older PR branch after that branch has been merged.
+- If a branch is stale or conflicts with `main`, re-apply the changes from current `main` in a fresh PR.
 
 Create separate folders for each real project under the relevant MCU folder.
 
