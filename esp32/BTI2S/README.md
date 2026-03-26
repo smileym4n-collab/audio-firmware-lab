@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.3.0
+0.3.1
 
 ## Summary
 
@@ -30,6 +30,7 @@ Arduino sketch for ESP32 that:
 - On boot, sketch loads Bluetooth name from NVS.
 - If no saved name exists, default name is `BTI2S`.
 - Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
+- The I2S pin config is held in static storage before A2DP start to avoid a startup crash (LoadProhibited) seen on some boots.
 - Rotary encoder controls volume in 2% steps.
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.

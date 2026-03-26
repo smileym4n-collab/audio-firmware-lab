@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.0
+// Version: 0.3.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -64,6 +64,13 @@ uint8_t lastEncoderAB = 0;
 bool lastSwitchReading = true;
 bool stableSwitchState = true;
 unsigned long lastSwitchChangeAtMs = 0;
+
+static const i2s_pin_config_t I2S_PINS = {
+    .bck_io_num = I2S_BCK_PIN,
+    .ws_io_num = I2S_LRCK_PIN,
+    .data_out_num = I2S_DATA_PIN,
+    .data_in_num = I2S_PIN_NO_CHANGE,
+};
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -230,14 +237,8 @@ void setup() {
   applyStartupMuteState();
   configureEncoderPins();
 
-  i2s_pin_config_t i2sPins = {
-      .bck_io_num = I2S_BCK_PIN,
-      .ws_io_num = I2S_LRCK_PIN,
-      .data_out_num = I2S_DATA_PIN,
-      .data_in_num = I2S_PIN_NO_CHANGE,
-  };
-
-  a2dpSink.set_pin_config(i2sPins);
+  // Keep pin config in static storage; the A2DP library may access it from background tasks.
+  a2dpSink.set_pin_config(I2S_PINS);
   a2dpSink.start(btDeviceName.c_str());
   applyOutputVolume();
 

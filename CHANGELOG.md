@@ -20,6 +20,8 @@ All notable changes to this repository will be recorded here.
 
 ### Fixed
 - `attiny/1616/minipreamp` swaps AS1115 outer digit mapping (digit 1/3) so the percentage reads correctly on the current display wiring
+- `esp32/BTI2S` fixes a startup `LoadProhibited` crash by keeping I2S pin configuration in static storage before starting A2DP
+- `esp32/BTI2S` version bumped to `0.3.1`
 
 ---
 
