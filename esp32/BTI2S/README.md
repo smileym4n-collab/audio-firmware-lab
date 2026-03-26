@@ -1,12 +1,14 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
+## Current version
+0.3.0
+
 ## Summary
 
 Arduino sketch for ESP32 that:
 - receives Bluetooth A2DP audio (sink mode)
 - outputs digital audio over I2S
-- allows changing the advertised Bluetooth device name via Serial command (stored in NVS)
-- allows local volume and mute control using a rotary encoder
+- allows changing the advertised Bluetooth device name using a Serial command (saved in NVS)
 
 ## MCU / Framework
 
@@ -15,60 +17,44 @@ Arduino sketch for ESP32 that:
 
 ## Pin map
 
-I2S:
-- `IO25` -> `LRCK` (I2S WS)
-- `IO26` -> `BCK` (I2S SCK)
-- `IO13` -> `DATA` (I2S data out)
-- MCLK: not used
-
-Rotary encoder:
-- `IO35` -> `ENC-SW` (switch)
-- `IO32` -> `ENC-A`
-- `IO33` -> `ENC-B`
+- `IO25` -> `LRCK` (I2S word select / WS)
+- `IO26` -> `BCK` (I2S bit clock / SCK)
+- `IO13` -> `DATA` (I2S serial data out)
+- `IO35` -> `ENC-SW` (rotary encoder push switch)
+- `IO32` -> `ENC-A` (rotary encoder channel A)
+- `IO33` -> `ENC-B` (rotary encoder channel B)
+- MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
 ## Behaviour
 
-- On boot, loads Bluetooth name from NVS (`BTI2S` default if empty).
-- Starts Bluetooth A2DP sink and sends audio out over I2S.
-- Encoder controls output level:
-  - rotate: volume up/down
-  - push: mute toggle
-- Serial rename command:
+- On boot, sketch loads Bluetooth name from NVS.
+- If no saved name exists, default name is `BTI2S`.
+- Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
+- Rotary encoder controls volume in 2% steps.
+- Pressing the encoder switch toggles mute/unmute.
+- Turning the encoder while muted unmutes and applies the new volume.
+- ESP32 starts A2DP sink and outputs I2S audio on the pins above.
+- Serial command can rename the Bluetooth device:
   - baud: `115200`
   - command: `name=YourNewName`
-  - device saves the new name and reboots.
+  - device saves name and reboots to apply it.
 
 ## External library
 
-Install in Arduino IDE:
+Install this Arduino library:
 - `ESP32-A2DP` by pschatzmann (provides `BluetoothA2DPSink`)
 
-`Preferences` is included with ESP32 Arduino core.
+`Preferences` is part of the ESP32 Arduino core.
 
 ## Build / Upload notes
 
 - Select an ESP32 board in Arduino IDE.
-- Ensure Bluetooth is available for that board/core config.
+- Ensure Bluetooth is supported/enabled for the selected board/core.
 - Build and upload `BTI2S.ino`.
 
 ## Assumptions
 
-- I2S receiver hardware accepts ESP32 I2S output without MCLK.
-- Bluetooth source device supports A2DP.
-- `IO35` is input-only and has no internal pull-up on ESP32, so the encoder switch line requires an external bias resistor.
-
-
-## UART troubleshooting sketch
-
-If your custom ESP32-WROOM board is not showing BTI2S logs, use:
-- `esp32/BTI2S/serial_output_test/serial_output_test.ino`
-
-This sketch only verifies UART output/input over FT232:
-- prints boot banner and periodic heartbeat
-- echoes received bytes in decimal/hex
-
-Recommended monitor settings:
-- baud: `115200`
-- line ending: `No line ending` (or test with `Newline`)
-
-If this sketch does not print, solve UART wiring/power/reset first before testing BTI2S.
+- Receiver hardware connected to I2S pins accepts standard ESP32 I2S timing.
+- No external MCLK is required by the downstream DAC/device.
+- Bluetooth source device supports A2DP audio streaming.
+- `IO35` is input-only and does not provide an internal pull-up, so ENC-SW needs suitable external biasing.
