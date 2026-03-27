@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.1
+// Version: 0.3.2
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
+#include <driver/i2s.h>  // Explicitly provide i2s_pin_config_t across Arduino core variants
 
 // ------------------------------
 // Pin map (fixed by project requirements)
