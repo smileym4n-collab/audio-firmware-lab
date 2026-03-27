@@ -24,7 +24,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` replaces `set_pin_config(...)` with AudioTools `I2SStream` pin configuration so builds succeed with ESP32-A2DP versions that removed `set_pin_config`
 - `esp32/BTI2S` constructs AudioTools/A2DP objects in `setup()` to avoid early boot initialization panics
 - `esp32/BTI2S` avoids AudioTools-backed sink construction (crash point) and uses deferred default `BluetoothA2DPSink` construction in `setup()`
-- `esp32/BTI2S` version bumped to `0.3.6`
+- `esp32/BTI2S` adds serial runtime volume control commands (`vol=0..100` and `volume=0..100`) for encoder-free deployments
+- `esp32/BTI2S` version bumped to `0.4.0`
 
 ---
 

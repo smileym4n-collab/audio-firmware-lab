@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.3.6
+0.4.0
 
 ## Summary
 
@@ -38,10 +38,10 @@ When built against ESP32-A2DP variants without explicit pin-routing API, runtime
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.
 - ESP32 starts A2DP sink and outputs I2S audio on the pins above.
-- Serial command can rename the Bluetooth device:
+- Serial commands:
   - baud: `115200`
-  - command: `name=YourNewName`
-  - device saves name and reboots to apply it.
+  - `name=YourNewName` saves new BT name and reboots to apply it
+  - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
 
 ## External library
 

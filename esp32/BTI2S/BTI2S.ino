@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.6
+// Version: 0.4.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -13,8 +13,8 @@
   - Rotary encoder controls output volume and mute.
 
   Serial usage (115200 baud):
-  - Send: name=YourNewName
-  - Device stores the name and reboots.
+  - name=YourNewName  -> store BT name and reboot
+  - vol=0..100        -> set volume percent immediately (and unmute)
 */
 
 #include <Arduino.h>
@@ -196,6 +196,38 @@ static bool saveBluetoothName(const String &newName) {
   return ok;
 }
 
+
+static bool parseVolumePercent(const String &line, uint8_t &outVolume) {
+  String valueText;
+
+  if (line.startsWith("vol=")) {
+    valueText = line.substring(4);
+  } else if (line.startsWith("volume=")) {
+    valueText = line.substring(7);
+  } else {
+    return false;
+  }
+
+  valueText.trim();
+  if (valueText.isEmpty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < static_cast<size_t>(valueText.length()); ++i) {
+    if (!isDigit(valueText.charAt(static_cast<unsigned int>(i)))) {
+      return false;
+    }
+  }
+
+  long parsed = valueText.toInt();
+  if (parsed < MIN_VOLUME_PERCENT || parsed > MAX_VOLUME_PERCENT) {
+    return false;
+  }
+
+  outVolume = static_cast<uint8_t>(parsed);
+  return true;
+}
+
 static void handleSerialCommands() {
   if (!ENABLE_SERIAL_DEBUG || !Serial.available()) {
     return;
@@ -204,23 +236,32 @@ static void handleSerialCommands() {
   String line = Serial.readStringUntil('\n');
   line.trim();
 
-  if (!line.startsWith("name=")) {
-    Serial.println("Unknown command. Use: name=YourNewName");
+  uint8_t requestedVolume = 0;
+  if (parseVolumePercent(line, requestedVolume)) {
+    volumePercent = requestedVolume;
+    isMuted = false;
+    applyOutputVolume();
+    Serial.printf("Volume set to %u%%\n", static_cast<unsigned>(volumePercent));
     return;
   }
 
-  String requestedName = line.substring(5);
-  requestedName.trim();
+  if (line.startsWith("name=")) {
+    String requestedName = line.substring(5);
+    requestedName.trim();
 
-  if (!saveBluetoothName(requestedName)) {
-    Serial.printf("Invalid name. Use 1..%u characters.\n", static_cast<unsigned>(MAX_BT_NAME_LEN));
+    if (!saveBluetoothName(requestedName)) {
+      Serial.printf("Invalid name. Use 1..%u characters.\n", static_cast<unsigned>(MAX_BT_NAME_LEN));
+      return;
+    }
+
+    Serial.printf("Saved new Bluetooth name: %s\n", requestedName.c_str());
+    Serial.println("Rebooting to apply the new name...");
+    delay(100);
+    ESP.restart();
     return;
   }
 
-  Serial.printf("Saved new Bluetooth name: %s\n", requestedName.c_str());
-  Serial.println("Rebooting to apply the new name...");
-  delay(100);
-  ESP.restart();
+  Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
 }
 
 void setup() {
@@ -249,7 +290,7 @@ void setup() {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
-    Serial.println("Ready. Send command 'name=YourNewName' to rename and reboot.");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
   }
 }
 
