@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.5
+// Version: 0.3.6
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -18,12 +18,11 @@
 */
 
 #include <Arduino.h>
-#include <AudioTools.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
 
 // ------------------------------
-// Pin map (fixed by project requirements)
+// Pin map (project target routing; startup mute drives these pins low)
 // ------------------------------
 static constexpr int I2S_LRCK_PIN = 25;   // IO25 -> I2S LRCK / WS
 static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
@@ -55,13 +54,8 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
 
-static I2SStream &getI2SStream() {
-  static I2SStream stream;
-  return stream;
-}
-
 static BluetoothA2DPSink &getA2DPSink() {
-  static BluetoothA2DPSink sink(getI2SStream());
+  static BluetoothA2DPSink sink;
   return sink;
 }
 
@@ -244,17 +238,8 @@ void setup() {
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
   configureEncoderPins();
 
-  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred AudioTools/A2DP objects");
-  I2SStream &i2sStream = getI2SStream();
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
-
-  // Keep this config in static storage in case the AudioTools implementation keeps references internally.
-  static auto i2sConfig = i2sStream.defaultConfig(TX_MODE);
-  i2sConfig.pin_bck = I2S_BCK_PIN;
-  i2sConfig.pin_ws = I2S_LRCK_PIN;
-  i2sConfig.pin_data = I2S_DATA_PIN;
-  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: begin I2S stream");
-  i2sStream.begin(i2sConfig);
 
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());

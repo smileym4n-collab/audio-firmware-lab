@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.3.5
+0.3.6
 
 ## Summary
 
@@ -25,14 +25,15 @@ Arduino sketch for ESP32 that:
 - `IO33` -> `ENC-B` (rotary encoder channel B)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
+When built against ESP32-A2DP variants without explicit pin-routing API, runtime I2S routing may follow library defaults.
+
 ## Behaviour
 
 - On boot, sketch loads Bluetooth name from NVS.
 - If no saved name exists, default name is `BTI2S`.
 - Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
-- Startup configures AudioTools `I2SStream` pins (`IO26/IO25/IO13`) before A2DP start for compatibility with newer ESP32-A2DP APIs.
-- BT sink and I2S stream are constructed in `setup()` (not as global static objects) to reduce startup crashes from early initialization ordering.
-- The AudioTools I2S config object is held in static storage before `begin()` to avoid lifetime issues during asynchronous startup.
+- BT sink object is constructed on first use in `setup()` (not as a global static object) to reduce startup crashes from early initialization ordering.
+- Uses the library-managed I2S output path for compatibility with ESP32-A2DP builds where AudioTools-based constructor paths can panic during startup.
 - Rotary encoder controls volume in 2% steps.
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.
@@ -46,9 +47,6 @@ Arduino sketch for ESP32 that:
 
 Install this Arduino library:
 - `ESP32-A2DP` by pschatzmann (provides `BluetoothA2DPSink`)
-
-Also required by current BTI2S code path:
-- `AudioTools` (usually installed automatically as an `ESP32-A2DP` dependency)
 
 `Preferences` is part of the ESP32 Arduino core.
 
