@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.2
+// Version: 0.3.3
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -18,9 +18,9 @@
 */
 
 #include <Arduino.h>
+#include <AudioTools.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
-#include <driver/i2s.h>  // Explicitly provide i2s_pin_config_t across Arduino core variants
 
 // ------------------------------
 // Pin map (fixed by project requirements)
@@ -55,7 +55,8 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
 
-BluetoothA2DPSink a2dpSink;
+I2SStream i2sStream;
+BluetoothA2DPSink a2dpSink(i2sStream);
 Preferences preferences;
 String btDeviceName;
 
@@ -66,12 +67,6 @@ bool lastSwitchReading = true;
 bool stableSwitchState = true;
 unsigned long lastSwitchChangeAtMs = 0;
 
-static const i2s_pin_config_t I2S_PINS = {
-    .bck_io_num = I2S_BCK_PIN,
-    .ws_io_num = I2S_LRCK_PIN,
-    .data_out_num = I2S_DATA_PIN,
-    .data_in_num = I2S_PIN_NO_CHANGE,
-};
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -238,8 +233,12 @@ void setup() {
   applyStartupMuteState();
   configureEncoderPins();
 
-  // Keep pin config in static storage; the A2DP library may access it from background tasks.
-  a2dpSink.set_pin_config(I2S_PINS);
+  auto i2sConfig = i2sStream.defaultConfig(TX_MODE);
+  i2sConfig.pin_bck = I2S_BCK_PIN;
+  i2sConfig.pin_ws = I2S_LRCK_PIN;
+  i2sConfig.pin_data = I2S_DATA_PIN;
+  i2sStream.begin(i2sConfig);
+
   a2dpSink.start(btDeviceName.c_str());
   applyOutputVolume();
 
