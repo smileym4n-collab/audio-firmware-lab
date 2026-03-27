@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.3.4
+0.3.5
 
 ## Summary
 
@@ -32,6 +32,7 @@ Arduino sketch for ESP32 that:
 - Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
 - Startup configures AudioTools `I2SStream` pins (`IO26/IO25/IO13`) before A2DP start for compatibility with newer ESP32-A2DP APIs.
 - BT sink and I2S stream are constructed in `setup()` (not as global static objects) to reduce startup crashes from early initialization ordering.
+- The AudioTools I2S config object is held in static storage before `begin()` to avoid lifetime issues during asynchronous startup.
 - Rotary encoder controls volume in 2% steps.
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.

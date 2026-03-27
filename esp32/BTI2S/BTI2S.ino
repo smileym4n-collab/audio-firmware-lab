@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.4
+// Version: 0.3.5
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -237,19 +237,26 @@ void setup() {
     Serial.println("BTI2S startup");
   }
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: load BT name from NVS");
   btDeviceName = getStoredBluetoothName();
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: apply startup mute state");
   applyStartupMuteState();
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
   configureEncoderPins();
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred AudioTools/A2DP objects");
   I2SStream &i2sStream = getI2SStream();
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
-  auto i2sConfig = i2sStream.defaultConfig(TX_MODE);
+  // Keep this config in static storage in case the AudioTools implementation keeps references internally.
+  static auto i2sConfig = i2sStream.defaultConfig(TX_MODE);
   i2sConfig.pin_bck = I2S_BCK_PIN;
   i2sConfig.pin_ws = I2S_LRCK_PIN;
   i2sConfig.pin_data = I2S_DATA_PIN;
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: begin I2S stream");
   i2sStream.begin(i2sConfig);
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());
   applyOutputVolume();
 

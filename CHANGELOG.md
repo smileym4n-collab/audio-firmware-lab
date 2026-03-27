@@ -23,7 +23,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` fixes a startup `LoadProhibited` crash by using stable pre-start I2S output configuration with the current ESP32-A2DP API
 - `esp32/BTI2S` replaces `set_pin_config(...)` with AudioTools `I2SStream` pin configuration so builds succeed with ESP32-A2DP versions that removed `set_pin_config`
 - `esp32/BTI2S` constructs AudioTools/A2DP objects in `setup()` to avoid early boot initialization panics
-- `esp32/BTI2S` version bumped to `0.3.4`
+- `esp32/BTI2S` keeps AudioTools I2S config in static storage and adds setup-stage checkpoints for crash isolation
+- `esp32/BTI2S` version bumped to `0.3.5`
 
 ---
 
