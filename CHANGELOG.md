@@ -22,7 +22,8 @@ All notable changes to this repository will be recorded here.
 - `attiny/1616/minipreamp` swaps AS1115 outer digit mapping (digit 1/3) so the percentage reads correctly on the current display wiring
 - `esp32/BTI2S` fixes a startup `LoadProhibited` crash by using stable pre-start I2S output configuration with the current ESP32-A2DP API
 - `esp32/BTI2S` replaces `set_pin_config(...)` with AudioTools `I2SStream` pin configuration so builds succeed with ESP32-A2DP versions that removed `set_pin_config`
-- `esp32/BTI2S` version bumped to `0.3.3`
+- `esp32/BTI2S` constructs AudioTools/A2DP objects in `setup()` to avoid early boot initialization panics
+- `esp32/BTI2S` version bumped to `0.3.4`
 
 ---
 

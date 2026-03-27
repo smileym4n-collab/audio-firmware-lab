@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.3
+// Version: 0.3.4
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -55,8 +55,16 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
 
-I2SStream i2sStream;
-BluetoothA2DPSink a2dpSink(i2sStream);
+static I2SStream &getI2SStream() {
+  static I2SStream stream;
+  return stream;
+}
+
+static BluetoothA2DPSink &getA2DPSink() {
+  static BluetoothA2DPSink sink(getI2SStream());
+  return sink;
+}
+
 Preferences preferences;
 String btDeviceName;
 
@@ -95,7 +103,7 @@ static void configureEncoderPins() {
 
 static void applyOutputVolume() {
   uint8_t appliedVolumePercent = isMuted ? 0 : volumePercent;
-  a2dpSink.set_volume(appliedVolumePercent);
+  getA2DPSink().set_volume(appliedVolumePercent);
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Volume: %u%%  Mute: %s\n", static_cast<unsigned>(volumePercent), isMuted ? "ON" : "OFF");
@@ -232,6 +240,9 @@ void setup() {
   btDeviceName = getStoredBluetoothName();
   applyStartupMuteState();
   configureEncoderPins();
+
+  I2SStream &i2sStream = getI2SStream();
+  BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
   auto i2sConfig = i2sStream.defaultConfig(TX_MODE);
   i2sConfig.pin_bck = I2S_BCK_PIN;
