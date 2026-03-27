@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.5.0
+// Version: 0.5.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -20,13 +20,15 @@
 #include <Arduino.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
+#include <driver/i2s.h>
 
 // ------------------------------
-// Pin map (project target routing; startup mute drives these pins low)
+// Pin map (fixed by project requirements)
 // ------------------------------
 static constexpr int I2S_LRCK_PIN = 25;   // IO25 -> I2S LRCK / WS
 static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
 static constexpr int I2S_DATA_PIN = 13;   // IO13 -> I2S DATA OUT
+static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
 static constexpr int ENC_SW_PIN = 35;     // IO35 -> encoder switch (input-only pin, external pull-up expected)
 static constexpr int ENC_A_PIN = 32;      // IO32 -> encoder channel A
@@ -55,6 +57,7 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
 // Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
 static constexpr bool ENABLE_ENCODER_CONTROLS = false;
+static bool i2sInitialized = false;
 
 static BluetoothA2DPSink &getA2DPSink() {
   static BluetoothA2DPSink sink;
@@ -82,6 +85,58 @@ static void applyStartupMuteState() {
   digitalWrite(I2S_LRCK_PIN, LOW);
   digitalWrite(I2S_DATA_PIN, LOW);
   delay(STARTUP_MUTE_HOLD_MS);
+}
+
+static bool initI2SOutput() {
+  i2s_config_t i2sConfig;
+  memset(&i2sConfig, 0, sizeof(i2sConfig));
+  i2sConfig.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_TX);
+  i2sConfig.sample_rate = 44100;
+  i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  i2sConfig.communication_format = I2S_COMM_FORMAT_STAND_MSB;
+  i2sConfig.intr_alloc_flags = 0;
+  i2sConfig.dma_buf_count = 8;
+  i2sConfig.dma_buf_len = 64;
+  i2sConfig.use_apll = false;
+  i2sConfig.tx_desc_auto_clear = true;
+  i2sConfig.fixed_mclk = 0;
+
+  i2s_pin_config_t i2sPins;
+  memset(&i2sPins, 0, sizeof(i2sPins));
+  i2sPins.bck_io_num = I2S_BCK_PIN;
+  i2sPins.ws_io_num = I2S_LRCK_PIN;
+  i2sPins.data_out_num = I2S_DATA_PIN;
+  i2sPins.data_in_num = I2S_PIN_NO_CHANGE;
+
+  if (i2s_driver_install(I2S_PORT, &i2sConfig, 0, nullptr) != ESP_OK) {
+    return false;
+  }
+  if (i2s_set_pin(I2S_PORT, &i2sPins) != ESP_OK) {
+    i2s_driver_uninstall(I2S_PORT);
+    return false;
+  }
+  i2s_zero_dma_buffer(I2S_PORT);
+  i2sInitialized = true;
+  return true;
+}
+
+static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
+  if (!i2sInitialized || data == nullptr || len == 0) {
+    return;
+  }
+  size_t bytesWritten = 0;
+  i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+}
+
+static void i2sSampleRateCallback(uint16_t rate) {
+  if (!i2sInitialized || rate == 0) {
+    return;
+  }
+  i2s_set_clk(I2S_PORT, rate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+  if (ENABLE_SERIAL_DEBUG) {
+    Serial.printf("I2S sample rate set: %u Hz\n", static_cast<unsigned>(rate));
+  }
 }
 
 static void configureEncoderPins() {
@@ -313,6 +368,17 @@ void setup() {
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init explicit I2S output");
+  if (!initI2SOutput()) {
+    if (ENABLE_SERIAL_DEBUG) {
+      Serial.println("ERROR: I2S init failed. Rebooting...");
+    }
+    delay(300);
+    ESP.restart();
+  }
+
+  a2dpSink.set_stream_reader(i2sAudioDataCallback, false);
+  a2dpSink.set_sample_rate_callback(i2sSampleRateCallback);
   a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());

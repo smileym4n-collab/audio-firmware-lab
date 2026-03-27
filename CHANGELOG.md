@@ -27,7 +27,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` adds serial runtime volume control commands (`vol=0..100` and `volume=0..100`) for encoder-free deployments
 - `esp32/BTI2S` adds A2DP connection-state serial logs (connecting/connected/disconnecting/disconnected)
 - `esp32/BTI2S` adds `ENABLE_ENCODER_CONTROLS` (default `false`) so encoder-free builds avoid floating-input behavior
-- `esp32/BTI2S` version bumped to `0.5.0`
+- `esp32/BTI2S` switches to explicit ESP-IDF I2S driver output + A2DP PCM stream callback to stabilize playback and avoid `btController` watchdog stalls
+- `esp32/BTI2S` version bumped to `0.5.1`
 
 ---
 

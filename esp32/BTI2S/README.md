@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.5.0
+0.5.1
 
 ## Summary
 
@@ -25,15 +25,13 @@ Arduino sketch for ESP32 that:
 - `IO33` -> `ENC-B` (rotary encoder channel B)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
-When built against ESP32-A2DP variants without explicit pin-routing API, runtime I2S routing may follow library defaults.
-
 ## Behaviour
 
 - On boot, sketch loads Bluetooth name from NVS.
 - If no saved name exists, default name is `BTI2S`.
 - Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
 - BT sink object is constructed on first use in `setup()` (not as a global static object) to reduce startup crashes from early initialization ordering.
-- Uses the library-managed I2S output path for compatibility with ESP32-A2DP builds where AudioTools-based constructor paths can panic during startup.
+- Uses explicit ESP-IDF I2S driver setup on `IO26/IO25/IO13` and feeds PCM via A2DP stream callback for deterministic output routing.
 - Rotary encoder controls volume in 2% steps.
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.
@@ -43,6 +41,7 @@ When built against ESP32-A2DP variants without explicit pin-routing API, runtime
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
 - Serial connection-state logs are printed when source devices connect/disconnect.
+- Prints runtime I2S sample-rate updates received from the Bluetooth stream.
 - Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
 
 ## External library
