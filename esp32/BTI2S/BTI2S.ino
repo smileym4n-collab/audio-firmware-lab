@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.3.0
+// Version: 0.5.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -13,13 +13,14 @@
   - Rotary encoder controls output volume and mute.
 
   Serial usage (115200 baud):
-  - Send: name=YourNewName
-  - Device stores the name and reboots.
+  - name=YourNewName  -> store BT name and reboot
+  - vol=0..100        -> set volume percent immediately (and unmute)
 */
 
 #include <Arduino.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
+#include <driver/i2s.h>
 
 // ------------------------------
 // Pin map (fixed by project requirements)
@@ -27,6 +28,7 @@
 static constexpr int I2S_LRCK_PIN = 25;   // IO25 -> I2S LRCK / WS
 static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
 static constexpr int I2S_DATA_PIN = 13;   // IO13 -> I2S DATA OUT
+static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
 static constexpr int ENC_SW_PIN = 35;     // IO35 -> encoder switch (input-only pin, external pull-up expected)
 static constexpr int ENC_A_PIN = 32;      // IO32 -> encoder channel A
@@ -53,8 +55,15 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
+// Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
+static constexpr bool ENABLE_ENCODER_CONTROLS = false;
+static bool i2sInitialized = false;
 
-BluetoothA2DPSink a2dpSink;
+static BluetoothA2DPSink &getA2DPSink() {
+  static BluetoothA2DPSink sink;
+  return sink;
+}
+
 Preferences preferences;
 String btDeviceName;
 
@@ -64,6 +73,7 @@ uint8_t lastEncoderAB = 0;
 bool lastSwitchReading = true;
 bool stableSwitchState = true;
 unsigned long lastSwitchChangeAtMs = 0;
+
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -75,6 +85,58 @@ static void applyStartupMuteState() {
   digitalWrite(I2S_LRCK_PIN, LOW);
   digitalWrite(I2S_DATA_PIN, LOW);
   delay(STARTUP_MUTE_HOLD_MS);
+}
+
+static bool initI2SOutput() {
+  i2s_config_t i2sConfig;
+  memset(&i2sConfig, 0, sizeof(i2sConfig));
+  i2sConfig.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_TX);
+  i2sConfig.sample_rate = 44100;
+  i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  i2sConfig.communication_format = I2S_COMM_FORMAT_STAND_MSB;
+  i2sConfig.intr_alloc_flags = 0;
+  i2sConfig.dma_buf_count = 8;
+  i2sConfig.dma_buf_len = 64;
+  i2sConfig.use_apll = false;
+  i2sConfig.tx_desc_auto_clear = true;
+  i2sConfig.fixed_mclk = 0;
+
+  i2s_pin_config_t i2sPins;
+  memset(&i2sPins, 0, sizeof(i2sPins));
+  i2sPins.bck_io_num = I2S_BCK_PIN;
+  i2sPins.ws_io_num = I2S_LRCK_PIN;
+  i2sPins.data_out_num = I2S_DATA_PIN;
+  i2sPins.data_in_num = I2S_PIN_NO_CHANGE;
+
+  if (i2s_driver_install(I2S_PORT, &i2sConfig, 0, nullptr) != ESP_OK) {
+    return false;
+  }
+  if (i2s_set_pin(I2S_PORT, &i2sPins) != ESP_OK) {
+    i2s_driver_uninstall(I2S_PORT);
+    return false;
+  }
+  i2s_zero_dma_buffer(I2S_PORT);
+  i2sInitialized = true;
+  return true;
+}
+
+static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
+  if (!i2sInitialized || data == nullptr || len == 0) {
+    return;
+  }
+  size_t bytesWritten = 0;
+  i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+}
+
+static void i2sSampleRateCallback(uint16_t rate) {
+  if (!i2sInitialized || rate == 0) {
+    return;
+  }
+  i2s_set_clk(I2S_PORT, rate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+  if (ENABLE_SERIAL_DEBUG) {
+    Serial.printf("I2S sample rate set: %u Hz\n", static_cast<unsigned>(rate));
+  }
 }
 
 static void configureEncoderPins() {
@@ -92,7 +154,7 @@ static void configureEncoderPins() {
 
 static void applyOutputVolume() {
   uint8_t appliedVolumePercent = isMuted ? 0 : volumePercent;
-  a2dpSink.set_volume(appliedVolumePercent);
+  getA2DPSink().set_volume(appliedVolumePercent);
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Volume: %u%%  Mute: %s\n", static_cast<unsigned>(volumePercent), isMuted ? "ON" : "OFF");
@@ -191,6 +253,38 @@ static bool saveBluetoothName(const String &newName) {
   return ok;
 }
 
+
+static bool parseVolumePercent(const String &line, uint8_t &outVolume) {
+  String valueText;
+
+  if (line.startsWith("vol=")) {
+    valueText = line.substring(4);
+  } else if (line.startsWith("volume=")) {
+    valueText = line.substring(7);
+  } else {
+    return false;
+  }
+
+  valueText.trim();
+  if (valueText.isEmpty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < static_cast<size_t>(valueText.length()); ++i) {
+    if (!isDigit(valueText.charAt(static_cast<unsigned int>(i)))) {
+      return false;
+    }
+  }
+
+  long parsed = valueText.toInt();
+  if (parsed < MIN_VOLUME_PERCENT || parsed > MAX_VOLUME_PERCENT) {
+    return false;
+  }
+
+  outVolume = static_cast<uint8_t>(parsed);
+  return true;
+}
+
 static void handleSerialCommands() {
   if (!ENABLE_SERIAL_DEBUG || !Serial.available()) {
     return;
@@ -199,23 +293,57 @@ static void handleSerialCommands() {
   String line = Serial.readStringUntil('\n');
   line.trim();
 
-  if (!line.startsWith("name=")) {
-    Serial.println("Unknown command. Use: name=YourNewName");
+  uint8_t requestedVolume = 0;
+  if (parseVolumePercent(line, requestedVolume)) {
+    volumePercent = requestedVolume;
+    isMuted = false;
+    applyOutputVolume();
+    Serial.printf("Volume set to %u%%\n", static_cast<unsigned>(volumePercent));
     return;
   }
 
-  String requestedName = line.substring(5);
-  requestedName.trim();
+  if (line.startsWith("name=")) {
+    String requestedName = line.substring(5);
+    requestedName.trim();
 
-  if (!saveBluetoothName(requestedName)) {
-    Serial.printf("Invalid name. Use 1..%u characters.\n", static_cast<unsigned>(MAX_BT_NAME_LEN));
+    if (!saveBluetoothName(requestedName)) {
+      Serial.printf("Invalid name. Use 1..%u characters.\n", static_cast<unsigned>(MAX_BT_NAME_LEN));
+      return;
+    }
+
+    Serial.printf("Saved new Bluetooth name: %s\n", requestedName.c_str());
+    Serial.println("Rebooting to apply the new name...");
+    delay(100);
+    ESP.restart();
     return;
   }
 
-  Serial.printf("Saved new Bluetooth name: %s\n", requestedName.c_str());
-  Serial.println("Rebooting to apply the new name...");
-  delay(100);
-  ESP.restart();
+  Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
+}
+
+
+static void onConnectionStateChanged(esp_a2d_connection_state_t state, void * /*ptr*/) {
+  if (!ENABLE_SERIAL_DEBUG) {
+    return;
+  }
+
+  switch (state) {
+    case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
+      Serial.println("A2DP: source disconnected");
+      break;
+    case ESP_A2D_CONNECTION_STATE_CONNECTING:
+      Serial.println("A2DP: source connecting...");
+      break;
+    case ESP_A2D_CONNECTION_STATE_CONNECTED:
+      Serial.println("A2DP: source connected");
+      break;
+    case ESP_A2D_CONNECTION_STATE_DISCONNECTING:
+      Serial.println("A2DP: source disconnecting...");
+      break;
+    default:
+      Serial.printf("A2DP: connection state=%d\n", static_cast<int>(state));
+      break;
+  }
 }
 
 void setup() {
@@ -226,18 +354,33 @@ void setup() {
     Serial.println("BTI2S startup");
   }
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: load BT name from NVS");
   btDeviceName = getStoredBluetoothName();
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: apply startup mute state");
   applyStartupMuteState();
-  configureEncoderPins();
+  if (ENABLE_ENCODER_CONTROLS) {
+    if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
+    configureEncoderPins();
+  } else if (ENABLE_SERIAL_DEBUG) {
+    Serial.println("setup: encoder controls disabled (serial volume mode)");
+  }
 
-  i2s_pin_config_t i2sPins = {
-      .bck_io_num = I2S_BCK_PIN,
-      .ws_io_num = I2S_LRCK_PIN,
-      .data_out_num = I2S_DATA_PIN,
-      .data_in_num = I2S_PIN_NO_CHANGE,
-  };
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
+  BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
-  a2dpSink.set_pin_config(i2sPins);
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init explicit I2S output");
+  if (!initI2SOutput()) {
+    if (ENABLE_SERIAL_DEBUG) {
+      Serial.println("ERROR: I2S init failed. Rebooting...");
+    }
+    delay(300);
+    ESP.restart();
+  }
+
+  a2dpSink.set_stream_reader(i2sAudioDataCallback, false);
+  a2dpSink.set_sample_rate_callback(i2sSampleRateCallback);
+  a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());
   applyOutputVolume();
 
@@ -245,12 +388,15 @@ void setup() {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
-    Serial.println("Ready. Send command 'name=YourNewName' to rename and reboot.");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
+    Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
 
 void loop() {
-  handleEncoderControls();
+  if (ENABLE_ENCODER_CONTROLS) {
+    handleEncoderControls();
+  }
   handleSerialCommands();
   delay(2);
 }

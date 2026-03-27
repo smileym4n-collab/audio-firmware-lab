@@ -20,6 +20,15 @@ All notable changes to this repository will be recorded here.
 
 ### Fixed
 - `attiny/1616/minipreamp` swaps AS1115 outer digit mapping (digit 1/3) so the percentage reads correctly on the current display wiring
+- `esp32/BTI2S` fixes a startup `LoadProhibited` crash by using stable pre-start I2S output configuration with the current ESP32-A2DP API
+- `esp32/BTI2S` replaces `set_pin_config(...)` with AudioTools `I2SStream` pin configuration so builds succeed with ESP32-A2DP versions that removed `set_pin_config`
+- `esp32/BTI2S` constructs AudioTools/A2DP objects in `setup()` to avoid early boot initialization panics
+- `esp32/BTI2S` avoids AudioTools-backed sink construction (crash point) and uses deferred default `BluetoothA2DPSink` construction in `setup()`
+- `esp32/BTI2S` adds serial runtime volume control commands (`vol=0..100` and `volume=0..100`) for encoder-free deployments
+- `esp32/BTI2S` adds A2DP connection-state serial logs (connecting/connected/disconnecting/disconnected)
+- `esp32/BTI2S` adds `ENABLE_ENCODER_CONTROLS` (default `false`) so encoder-free builds avoid floating-input behavior
+- `esp32/BTI2S` switches to explicit ESP-IDF I2S driver output + A2DP PCM stream callback to stabilize playback and avoid `btController` watchdog stalls
+- `esp32/BTI2S` version bumped to `0.5.1`
 
 ---
 
