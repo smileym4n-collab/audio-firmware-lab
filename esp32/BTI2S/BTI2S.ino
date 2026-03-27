@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.4.0
+// Version: 0.5.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -53,6 +53,8 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
+// Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
+static constexpr bool ENABLE_ENCODER_CONTROLS = false;
 
 static BluetoothA2DPSink &getA2DPSink() {
   static BluetoothA2DPSink sink;
@@ -264,6 +266,31 @@ static void handleSerialCommands() {
   Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
 }
 
+
+static void onConnectionStateChanged(esp_a2d_connection_state_t state, void * /*ptr*/) {
+  if (!ENABLE_SERIAL_DEBUG) {
+    return;
+  }
+
+  switch (state) {
+    case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
+      Serial.println("A2DP: source disconnected");
+      break;
+    case ESP_A2D_CONNECTION_STATE_CONNECTING:
+      Serial.println("A2DP: source connecting...");
+      break;
+    case ESP_A2D_CONNECTION_STATE_CONNECTED:
+      Serial.println("A2DP: source connected");
+      break;
+    case ESP_A2D_CONNECTION_STATE_DISCONNECTING:
+      Serial.println("A2DP: source disconnecting...");
+      break;
+    default:
+      Serial.printf("A2DP: connection state=%d\n", static_cast<int>(state));
+      break;
+  }
+}
+
 void setup() {
   if (ENABLE_SERIAL_DEBUG) {
     Serial.begin(115200);
@@ -276,12 +303,17 @@ void setup() {
   btDeviceName = getStoredBluetoothName();
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: apply startup mute state");
   applyStartupMuteState();
-  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
-  configureEncoderPins();
+  if (ENABLE_ENCODER_CONTROLS) {
+    if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
+    configureEncoderPins();
+  } else if (ENABLE_SERIAL_DEBUG) {
+    Serial.println("setup: encoder controls disabled (serial volume mode)");
+  }
 
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
+  a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());
   applyOutputVolume();
@@ -291,11 +323,14 @@ void setup() {
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
     Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
+    Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
 
 void loop() {
-  handleEncoderControls();
+  if (ENABLE_ENCODER_CONTROLS) {
+    handleEncoderControls();
+  }
   handleSerialCommands();
   delay(2);
 }

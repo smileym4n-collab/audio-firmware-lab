@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.4.0
+0.5.0
 
 ## Summary
 
@@ -42,6 +42,8 @@ When built against ESP32-A2DP variants without explicit pin-routing API, runtime
   - baud: `115200`
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
+- Serial connection-state logs are printed when source devices connect/disconnect.
+- Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
 
 ## External library
 
