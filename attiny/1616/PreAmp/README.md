@@ -1,6 +1,6 @@
 # PreAmp
 
-Version: 0.1.11
+Version: 0.1.12
 
 ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input selection, motorized potentiometer support, and 16x2 LCD status display.
 
@@ -59,7 +59,7 @@ Firmware forces Relay 1 (DAC) whenever selector voltage is below `0.8V` (`<=248`
 Firmware keeps `PB1` as a plain high-impedance analog input (`pinMode(INPUT)` only), with no forced low-level `PORTB.PIN1CTRL` bit changes.
 
 ## External libraries
-- `LiquidCrystal_I2C` (for 16x2 LCD)
+- No LCD library required (firmware includes a direct PCF8574 + HD44780 4-bit driver)
 - No IR decode library required (firmware includes a small NEC decoder)
 
 ## Build / upload notes

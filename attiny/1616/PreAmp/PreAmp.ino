@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.11
+  Version: 0.1.12
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -17,9 +17,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 #include <string.h>
-#include <new>
 
 // -----------------------------------------------------------------------------
 // Pin map (fixed by hardware)
@@ -57,8 +55,10 @@ static const uint8_t LCD_ADDR_CANDIDATES[] = {
   0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,  // PCF8574 range
   0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F   // PCF8574A range
 };
-alignas(LiquidCrystal_I2C) static uint8_t g_lcdStorage[sizeof(LiquidCrystal_I2C)];
-static LiquidCrystal_I2C* g_lcd = nullptr;
+static uint8_t g_lcdAddress = 0;
+static const uint8_t LCD_PIN_RS = 0x01;
+static const uint8_t LCD_PIN_EN = 0x04;
+static const uint8_t LCD_PIN_BL = 0x08;
 
 // PGA2310 transfer and volume limits
 static const float PGA_MIN_DB = -95.5f;    // PGA2310 minimum in dB
@@ -178,6 +178,77 @@ static bool i2cDevicePresent(uint8_t address)
   return (Wire.endTransmission() == 0);
 }
 
+static void lcdExpanderWrite(uint8_t value)
+{
+  Wire.beginTransmission(g_lcdAddress);
+  Wire.write(value);
+  Wire.endTransmission();
+}
+
+static void lcdPulseEnable(uint8_t value)
+{
+  lcdExpanderWrite(value | LCD_PIN_EN);
+  delayMicroseconds(1);
+  lcdExpanderWrite(value & ~LCD_PIN_EN);
+  delayMicroseconds(50);
+}
+
+static void lcdWrite4Bits(uint8_t nibble, bool rs)
+{
+  uint8_t out = LCD_PIN_BL;
+  if (rs) {
+    out |= LCD_PIN_RS;
+  }
+
+  out |= ((nibble & 0x0Fu) << 4);
+  lcdExpanderWrite(out);
+  lcdPulseEnable(out);
+}
+
+static void lcdSend(uint8_t value, bool rs)
+{
+  lcdWrite4Bits(static_cast<uint8_t>(value >> 4), rs);
+  lcdWrite4Bits(static_cast<uint8_t>(value & 0x0F), rs);
+}
+
+static void lcdCommand(uint8_t cmd)
+{
+  lcdSend(cmd, false);
+}
+
+static void lcdData(uint8_t data)
+{
+  lcdSend(data, true);
+}
+
+static void lcdSetCursor(uint8_t col, uint8_t row)
+{
+  static const uint8_t rowOffsets[] = {0x00, 0x40};
+  if (row > 1) {
+    row = 1;
+  }
+  lcdCommand(static_cast<uint8_t>(0x80u | (col + rowOffsets[row])));
+}
+
+static void lcdInitSequence()
+{
+  delay(50);
+  lcdWrite4Bits(0x03, false);
+  delayMicroseconds(4500);
+  lcdWrite4Bits(0x03, false);
+  delayMicroseconds(4500);
+  lcdWrite4Bits(0x03, false);
+  delayMicroseconds(150);
+  lcdWrite4Bits(0x02, false);  // 4-bit mode
+
+  lcdCommand(0x28);  // 4-bit, 2-line
+  lcdCommand(0x08);  // Display off
+  lcdCommand(0x01);  // Clear
+  delayMicroseconds(2000);
+  lcdCommand(0x06);  // Entry mode
+  lcdCommand(0x0C);  // Display on, cursor off
+}
+
 static void initDisplay()
 {
   // Give LCD backpack and level shifter time to settle after power-up.
@@ -187,7 +258,7 @@ static void initDisplay()
     for (uint8_t i = 0; i < sizeof(LCD_ADDR_CANDIDATES); ++i) {
       const uint8_t addr = LCD_ADDR_CANDIDATES[i];
       if (i2cDevicePresent(addr)) {
-        g_lcd = new (g_lcdStorage) LiquidCrystal_I2C(addr, LCD_COLS, LCD_ROWS);
+        g_lcdAddress = addr;
         g_lcdAvailable = true;
         break;
       }
@@ -197,8 +268,7 @@ static void initDisplay()
   }
 
   if (g_lcdAvailable) {
-    g_lcd->init();
-    g_lcd->backlight();
+    lcdInitSequence();
   }
 }
 
@@ -214,13 +284,13 @@ static void centerPrint(uint8_t row, const char* text)
   }
 
   const int8_t padding = static_cast<int8_t>((LCD_COLS - len) / 2);
-  g_lcd->setCursor(0, row);
+  lcdSetCursor(0, row);
   for (uint8_t i = 0; i < LCD_COLS; ++i) {
-    g_lcd->print(' ');
+    lcdData(' ');
   }
-  g_lcd->setCursor((padding > 0) ? padding : 0, row);
+  lcdSetCursor((padding > 0) ? padding : 0, row);
   for (size_t i = 0; i < len; ++i) {
-    g_lcd->print(text[i]);
+    lcdData(static_cast<uint8_t>(text[i]));
   }
 }
 

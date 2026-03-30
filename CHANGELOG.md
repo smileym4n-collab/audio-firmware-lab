@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` removes `LiquidCrystal_I2C` dependency and now drives PCF8574/HD44780 LCD backpacks directly over `Wire`, avoiding megaAVR library-compatibility warnings
+- `attiny/1616/PreAmp` version bumped to `0.1.12`
+
+### Fixed
 - `attiny/1616/PreAmp` LCD detection now scans full PCF8574/PCF8574A I2C ranges (`0x20..0x27`, `0x38..0x3F`) instead of only `0x27`/`0x3F`, improving compatibility with generic 16x2 backpacks
 - `attiny/1616/PreAmp` version bumped to `0.1.11`
 
