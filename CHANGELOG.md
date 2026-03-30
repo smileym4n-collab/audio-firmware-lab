@@ -4,6 +4,27 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Fixed
+- `attiny/1616/PreAmp` improves ADC stability by using a throwaway conversion + 4-sample averaging for both `VOL IN` and input-ladder reads
+- `attiny/1616/PreAmp` now probes LCD I2C addresses `0x27` and `0x3F`, reducing display bring-up failures on alternate backpacks
+- `attiny/1616/PreAmp` removes runtime `String` usage in LCD updates to avoid small-MCU heap fragmentation issues
+- `attiny/1616/PreAmp` version bumped to `0.1.5`
+
+### Fixed
+- `attiny/1616/PreAmp` input selector ADC mapping now follows measured ladder voltages (`0.541V`, `1.170V`, `1.940V`, `2.700V`) so relay selection order matches hardware
+- `attiny/1616/PreAmp` version bumped to `0.1.4`
+
+### Fixed
+- `attiny/1616/PreAmp` now explicitly configures `PB1` (`VOL IN`) as high-impedance ADC input with pull-up disabled and digital input buffer disabled
+- `attiny/1616/PreAmp` version bumped to `0.1.3`
+
+### Fixed
+- `attiny/1616/PreAmp` replaces TinyIRReceiver callback integration with an internal NEC IR decoder, resolving `undefined reference to handleReceivedTinyIRData()` link errors
+- `attiny/1616/PreAmp` version bumped to `0.1.2`
+
+### Added
+- `attiny/1616/PreAmp` initial ATtiny1616 megaTinyCore sketch with PGA2310 (+10 dB cap), 4-way ULN2003 input relay selection, output relay startup delay, I2C 16x2 LCD status display, DRV8210 motorized pot drive, and IR volume control-only support
+
 ### Changed
 - `attiny/1616/minipreamp` now drives paired ULN2003A relay outputs: `PB1` follows `RELAY1` and `PA3` follows `RELAY2`
 - `attiny/1616/minipreamp` adds ADC-jump filtering and a safety mute trip on repeated suspicious volume readings
