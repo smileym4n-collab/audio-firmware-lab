@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.12
+  Version: 0.1.13
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -56,9 +56,23 @@ static const uint8_t LCD_ADDR_CANDIDATES[] = {
   0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F   // PCF8574A range
 };
 static uint8_t g_lcdAddress = 0;
+
+// Backpack bit mapping selector:
+// 0 = common "YwRobot" mapping (P0 RS, P2 EN, P3 BL, P4..P7 D4..D7)
+// 1 = common alternate mapping (P6 RS, P4 EN, P7 BL, P0..P3 D4..D7)
+static const uint8_t LCD_BACKPACK_PROFILE = 0;
+
+#if LCD_BACKPACK_PROFILE == 0
 static const uint8_t LCD_PIN_RS = 0x01;
 static const uint8_t LCD_PIN_EN = 0x04;
 static const uint8_t LCD_PIN_BL = 0x08;
+static const uint8_t LCD_DATA_SHIFT = 4;
+#else
+static const uint8_t LCD_PIN_RS = 0x40;
+static const uint8_t LCD_PIN_EN = 0x10;
+static const uint8_t LCD_PIN_BL = 0x80;
+static const uint8_t LCD_DATA_SHIFT = 0;
+#endif
 
 // PGA2310 transfer and volume limits
 static const float PGA_MIN_DB = -95.5f;    // PGA2310 minimum in dB
@@ -154,6 +168,14 @@ static void configureVolumeAdcPin()
   pinMode(VOL_ADC_PIN, INPUT);
 }
 
+static void configureInputSelectAdcPin()
+{
+  // Force PA7 into high-impedance analog input mode.
+  pinMode(INPUT_ADC_PIN, INPUT);
+  PORTA.PIN7CTRL &= ~PORT_PULLUPEN_bm;
+  PORTA.PIN7CTRL = (PORTA.PIN7CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
+}
+
 static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
 {
   analogRead(pin);  // Throw away first conversion after channel selection
@@ -200,7 +222,7 @@ static void lcdWrite4Bits(uint8_t nibble, bool rs)
     out |= LCD_PIN_RS;
   }
 
-  out |= ((nibble & 0x0Fu) << 4);
+  out |= ((nibble & 0x0Fu) << LCD_DATA_SHIFT);
   lcdExpanderWrite(out);
   lcdPulseEnable(out);
 }
@@ -579,7 +601,7 @@ void setup()
   pinMode(PGA_CS_PIN, OUTPUT);
 
   configureVolumeAdcPin();
-  pinMode(INPUT_ADC_PIN, INPUT);
+  configureInputSelectAdcPin();
   pinMode(IR_PIN, INPUT);
   pinMode(I2C_SDA_PIN, INPUT);
   pinMode(I2C_SCL_PIN, INPUT);

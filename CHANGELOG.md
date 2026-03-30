@@ -5,6 +5,11 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` now explicitly forces `PA7` (`INPUT IN`) to high-impedance ADC mode (pull-up off, digital input buffer disabled)
+- `attiny/1616/PreAmp` adds selectable LCD backpack bit-mapping profiles via `LCD_BACKPACK_PROFILE` for broader generic 16x2 I2C module compatibility
+- `attiny/1616/PreAmp` version bumped to `0.1.13`
+
+### Fixed
 - `attiny/1616/PreAmp` removes `LiquidCrystal_I2C` dependency and now drives PCF8574/HD44780 LCD backpacks directly over `Wire`, avoiding megaAVR library-compatibility warnings
 - `attiny/1616/PreAmp` version bumped to `0.1.12`
 

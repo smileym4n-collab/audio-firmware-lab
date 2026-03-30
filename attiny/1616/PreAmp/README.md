@@ -1,6 +1,6 @@
 # PreAmp
 
-Version: 0.1.12
+Version: 0.1.13
 
 ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input selection, motorized potentiometer support, and 16x2 LCD status display.
 
@@ -38,7 +38,7 @@ ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input 
 - Displays:
   - top LCD row: active input name in uppercase, centered
   - bottom LCD row: current volume in dB, centered
-  - firmware forces default megaTinyCore TWI pin mux (PA1/PA2), then scans PCF8574 address ranges (`0x20..0x27` and `0x38..0x3F`) with startup settle/retry delay
+  - firmware forces default megaTinyCore TWI pin mux (PA1/PA2), scans PCF8574 address ranges (`0x20..0x27` and `0x38..0x3F`), and includes a selectable backpack bit-mapping profile (`LCD_BACKPACK_PROFILE`)
 - Supports adjustable volume taper blending with `VOLUME_CURVE_BLEND_PERCENT`:
   - `0` = linear
   - `100` = log-like (square-law)
@@ -46,7 +46,7 @@ ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input 
 - Drives motorized potentiometer via DRV8210 toward an IR-adjusted target ADC value.
 
 ## Input ladder assumption (`INPUT IN`)
-Selector mapping now uses measured ladder voltages (at `VDD = 3.3V`):
+Selector mapping now uses measured ladder voltages (at `VDD = 3.3V`), and `PA7` is explicitly forced to high-impedance ADC mode in firmware:
 - `0.541V` -> Relay 1 (`DAC`)
 - `1.170V` -> Relay 2 (`AUX 1`)
 - `1.940V` -> Relay 3 (`AUX 2`)
