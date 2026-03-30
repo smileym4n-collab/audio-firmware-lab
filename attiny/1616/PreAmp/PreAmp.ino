@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.7
+  Version: 0.1.8
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -503,6 +503,8 @@ void setup()
   configureVolumeAdcPin();
   pinMode(INPUT_ADC_PIN, INPUT);
   pinMode(IR_PIN, INPUT);
+  pinMode(I2C_SDA_PIN, INPUT);
+  pinMode(I2C_SCL_PIN, INPUT);
 
   // Safe startup states
   digitalWrite(RELAY_DAC_PIN, LOW);
@@ -517,6 +519,8 @@ void setup()
   digitalWrite(PGA_SDI_PIN, LOW);
   digitalWrite(PGA_MUTE_PIN, LOW);  // mute during initialization
 
+  // Force default megaTinyCore TWI mux (PA1/PA2) to match fixed pin map.
+  Wire.swap(0);
   Wire.begin();
   Wire.setClock(100000UL);
   initDisplay();

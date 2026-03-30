@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` now explicitly forces default megaTinyCore TWI pin mux (`Wire.swap(0)`) and configures `PA1/PA2` as input before `Wire.begin()`, matching the fixed I2C pin map
+- `attiny/1616/PreAmp` version bumped to `0.1.8`
+
+### Fixed
 - `attiny/1616/PreAmp` input relay selection now uses nearest-measured ADC centers with multi-sample confirmation before switching, improving stability on `PA7` ladder noise/variance
 - `attiny/1616/PreAmp` version bumped to `0.1.7`
 

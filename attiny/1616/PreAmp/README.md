@@ -1,6 +1,6 @@
 # PreAmp
 
-Version: 0.1.7
+Version: 0.1.8
 
 ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input selection, motorized potentiometer support, and 16x2 LCD status display.
 
@@ -38,7 +38,7 @@ ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input 
 - Displays:
   - top LCD row: active input name in uppercase, centered
   - bottom LCD row: current volume in dB, centered
-  - firmware probes LCD addresses `0x27` then `0x3F` at startup (with startup settle/retry delay) and uses the one that responds
+  - firmware forces default megaTinyCore TWI pin mux (PA1/PA2), then probes LCD addresses `0x27` and `0x3F` with startup settle/retry delay
 - Supports adjustable volume taper blending with `VOLUME_CURVE_BLEND_PERCENT`:
   - `0` = linear
   - `100` = log-like (square-law)
