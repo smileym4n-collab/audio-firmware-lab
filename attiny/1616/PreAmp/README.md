@@ -1,6 +1,6 @@
 # PreAmp
 
-Version: 0.1.13
+Version: 0.1.14
 
 ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input selection, motorized potentiometer support, and 16x2 LCD status display.
 
@@ -46,7 +46,7 @@ ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input 
 - Drives motorized potentiometer via DRV8210 toward an IR-adjusted target ADC value.
 
 ## Input ladder assumption (`INPUT IN`)
-Selector mapping now uses measured ladder voltages (at `VDD = 3.3V`), and `PA7` is explicitly forced to high-impedance ADC mode in firmware:
+Selector mapping now uses measured ladder voltages (at `VDD = 3.3V`), and `PA7` is explicitly forced to high-impedance ADC mode in firmware. DAC is hard-selected for `PA7 < 0.8V`:
 - `0.541V` -> Relay 1 (`DAC`)
 - `1.170V` -> Relay 2 (`AUX 1`)
 - `1.940V` -> Relay 3 (`AUX 2`)
@@ -68,3 +68,8 @@ Firmware keeps `PB1` as a plain high-impedance analog input (`pinMode(INPUT)` on
 - Configure board clock/fuses per your hardware.
 - Confirm IR command constants in `PreAmp.ino` match your handset.
 - If motor direction is reversed, swap the direction branches in `motorDriveTowardTarget()`.
+
+
+## ADC pin confirmation
+- `VOL ADC` is `PB1`
+- `INPUT SELECT ADC` is `PA7`

@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.13
+  Version: 0.1.14
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -96,12 +96,13 @@ static const uint16_t MOTOR_MAX_RUN_MS = 2200;     // Safety timeout per continu
 static const uint8_t IR_CMD_VOL_UP = 0x18;
 static const uint8_t IR_CMD_VOL_DOWN = 0x52;
 
-// Input ladder thresholds from measured selector voltages at 3.3V VDD:
-// Relay 1 (DAC):   0.541V  (~168 ADC counts)
+// Input ladder decode on PA7:
+// - Relay 1 (DAC) is hard-selected for anything below 0.8V.
+// - Above 0.8V, remaining relays are selected by nearest measured center.
+// Measured selector voltages at 3.3V VDD:
 // Relay 2 (AUX 1): 1.170V  (~363 ADC counts)
 // Relay 3 (AUX 2): 1.940V  (~601 ADC counts)
 // Relay 4 (PHONO): 2.700V  (~837 ADC counts)
-static const uint16_t INPUT_CENTER_R1 = 168;
 static const uint16_t INPUT_CENTER_R2 = 363;
 static const uint16_t INPUT_CENTER_R3 = 601;
 static const uint16_t INPUT_CENTER_R4 = 837;
@@ -388,12 +389,9 @@ static InputSource decodeInputFromAdc(uint16_t adcValue)
     return INPUT_DAC;
   }
 
-  const uint16_t dR1 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R1)));
   const uint16_t dR2 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R2)));
   const uint16_t dR3 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R3)));
   const uint16_t dR4 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R4)));
-
-  (void)dR1;  // DAC handled by explicit low-voltage threshold above.
 
   InputSource closest = INPUT_AUX1;
   uint16_t best = dR2;

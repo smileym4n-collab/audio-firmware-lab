@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` clarifies and enforces selector behavior documentation: Relay 1 (DAC) engages for `PA7 < 0.8V`, with nearest-center selection only above that threshold
+- `attiny/1616/PreAmp` version bumped to `0.1.14`
+
+### Fixed
 - `attiny/1616/PreAmp` now explicitly forces `PA7` (`INPUT IN`) to high-impedance ADC mode (pull-up off, digital input buffer disabled)
 - `attiny/1616/PreAmp` adds selectable LCD backpack bit-mapping profiles via `LCD_BACKPACK_PROFILE` for broader generic 16x2 I2C module compatibility
 - `attiny/1616/PreAmp` version bumped to `0.1.13`
