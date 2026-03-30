@@ -4,6 +4,9 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Added
+- `attiny/1616/PreAmpv2` initial `0.1.0` ATtiny1616 basic firmware with resistor-ladder input selection, one-hot relay control, PGA2310 pot volume control (capped at `+10 dB`), 16x2 I2C LCD status, and 1 second delayed output relay startup
+
 ### Fixed
 - `attiny/1616/PreAmp` improves ADC stability by using a throwaway conversion + 4-sample averaging for both `VOL IN` and input-ladder reads
 - `attiny/1616/PreAmp` now probes LCD I2C addresses `0x27` and `0x3F`, reducing display bring-up failures on alternate backpacks
