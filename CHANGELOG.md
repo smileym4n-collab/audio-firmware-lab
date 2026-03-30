@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` now hard-selects Relay 1 (DAC) whenever `PA7` is below `0.8V` (`<=248` ADC @ 3.3V), addressing missed DAC selection
+- `attiny/1616/PreAmp` version bumped to `0.1.10`
+
+### Fixed
 - `attiny/1616/PreAmp` reduces `PB1` (`VOL IN`) sampling load by using single-conversion reads and slower volume poll timing (`50ms`) instead of repeated averaged conversions
 - `attiny/1616/PreAmp` version bumped to `0.1.9`
 

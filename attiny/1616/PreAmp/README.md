@@ -1,6 +1,6 @@
 # PreAmp
 
-Version: 0.1.9
+Version: 0.1.10
 
 ATtiny1616 preamp controller for a PGA2310-based analog preamp with relay input selection, motorized potentiometer support, and 16x2 LCD status display.
 
@@ -52,7 +52,7 @@ Selector mapping now uses measured ladder voltages (at `VDD = 3.3V`):
 - `1.940V` -> Relay 3 (`AUX 2`)
 - `2.700V` -> Relay 4 (`PHONO`)
 
-Firmware selects the relay by nearest measured ADC center (not simple edge thresholding), then requires repeated confirmation before switching relays.
+Firmware forces Relay 1 (DAC) whenever selector voltage is below `0.8V` (`<=248` ADC @ 3.3V), then uses nearest measured ADC center for the remaining relays with repeated confirmation before switching.
 
 `INPUT IN` uses throwaway + 4-sample averaging for selector stability, while `VOL IN` uses a single direct conversion at a slower poll rate to minimize loading on `PB1`.
 

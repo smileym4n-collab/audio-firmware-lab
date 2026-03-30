@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.9
+  Version: 0.1.10
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -89,6 +89,7 @@ static const uint16_t INPUT_CENTER_R1 = 168;
 static const uint16_t INPUT_CENTER_R2 = 363;
 static const uint16_t INPUT_CENTER_R3 = 601;
 static const uint16_t INPUT_CENTER_R4 = 837;
+static const uint16_t INPUT_DAC_MAX_ADC = 248;  // ~0.8V at 3.3V ADC reference
 
 // Require repeated consistent readings before switching relays.
 static const uint8_t INPUT_CONFIRM_COUNT = 3;
@@ -292,18 +293,20 @@ static void applyPgaFromAdc(uint16_t adcValue)
 
 static InputSource decodeInputFromAdc(uint16_t adcValue)
 {
+  if (adcValue <= INPUT_DAC_MAX_ADC) {
+    return INPUT_DAC;
+  }
+
   const uint16_t dR1 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R1)));
   const uint16_t dR2 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R2)));
   const uint16_t dR3 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R3)));
   const uint16_t dR4 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R4)));
 
-  InputSource closest = INPUT_DAC;
-  uint16_t best = dR1;
+  (void)dR1;  // DAC handled by explicit low-voltage threshold above.
 
-  if (dR2 < best) {
-    best = dR2;
-    closest = INPUT_AUX1;
-  }
+  InputSource closest = INPUT_AUX1;
+  uint16_t best = dR2;
+
   if (dR3 < best) {
     best = dR3;
     closest = INPUT_AUX2;
