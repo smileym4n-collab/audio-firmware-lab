@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.1.0
+  Version: 0.2.0
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -42,6 +42,10 @@
 // 0 = disabled (default), 1 = enabled.
 #ifndef PREAMPV2_DEBUG
 #define PREAMPV2_DEBUG 0
+#endif
+
+#ifndef PREAMPV2_LCD_DEBUG
+#define PREAMPV2_LCD_DEBUG 0
 #endif
 
 #if PREAMPV2_DEBUG
@@ -320,6 +324,52 @@ static void updateDisplay()
     return;
   }
 
+#if PREAMPV2_LCD_DEBUG
+  // Temporary LCD debug mode for boards without UART access.
+  // Line 1: selected input + raw input ladder ADC.
+  // Line 2: raw volume ADC + PGA code being sent.
+  static uint16_t lastInputAdcShown = 65535;
+  static uint16_t lastVolAdcShown = 65535;
+  static InputSource lastInputShown = INPUT_COUNT;
+  static uint8_t lastCodeShown = 255;
+
+  if ((g_selectedInput == lastInputShown) &&
+      (g_lastInputAdc == lastInputAdcShown) &&
+      (g_lastVolAdc == lastVolAdcShown) &&
+      (g_pgaCode == lastCodeShown)) {
+    return;
+  }
+
+  const char* inputShort = "DAC";
+  if (g_selectedInput == INPUT_AUX1) {
+    inputShort = "AU1";
+  } else if (g_selectedInput == INPUT_AUX2) {
+    inputShort = "AU2";
+  } else if (g_selectedInput == INPUT_PHONO) {
+    inputShort = "PHO";
+  }
+
+  char line0[LCD_COLS + 1];
+  snprintf(line0, sizeof(line0), "IN:%s A:%3u", inputShort, g_lastInputAdc);
+  g_lcd.setCursor(0, 0);
+  g_lcd.print(line0);
+  for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
+    g_lcd.print(' ');
+  }
+
+  char line1[LCD_COLS + 1];
+  snprintf(line1, sizeof(line1), "V:%3u C:%3u", g_lastVolAdc, g_pgaCode);
+  g_lcd.setCursor(0, 1);
+  g_lcd.print(line1);
+  for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
+    g_lcd.print(' ');
+  }
+
+  lastInputShown = g_selectedInput;
+  lastInputAdcShown = g_lastInputAdc;
+  lastVolAdcShown = g_lastVolAdc;
+  lastCodeShown = g_pgaCode;
+#else
   static InputSource lastInputShown = INPUT_COUNT;
   static int16_t lastDbTenthsShown = 32767;
 
@@ -345,6 +395,7 @@ static void updateDisplay()
     }
     lastDbTenthsShown = dbTenths;
   }
+#endif
 }
 
 static void initializeLcd()
