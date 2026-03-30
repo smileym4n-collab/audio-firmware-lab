@@ -13,7 +13,14 @@ Main goals:
 - preserve known-good behaviour unless explicitly told to change it
 - prefer robustness and clarity over clever abstractions
 
-
+Versioning rules for PreAmpv2:
+- File: main/attiny/1616/PreAmpv2/PreAmpv2.ino
+- The header comment contains a line in the format:
+  Version: x.y.z
+- Whenever modifying this file, always increment the patch version by 1 unless the task explicitly requests a different version bump.
+- Preserve the existing version line format exactly.
+- Mention the old and new version in the summary.
+  
 ## Versioning rules
 
 - Read the current version from the project README and source header before making changes.
