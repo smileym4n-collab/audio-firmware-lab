@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.10
+  Version: 0.1.11
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -19,6 +19,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <string.h>
+#include <new>
 
 // -----------------------------------------------------------------------------
 // Pin map (fixed by hardware)
@@ -52,11 +53,12 @@ static const uint8_t INPUT_ADC_PIN     = PIN_PA7;  // Input selector resistor la
 // LCD settings
 static const uint8_t LCD_COLS = 16;
 static const uint8_t LCD_ROWS = 2;
-static const uint8_t LCD_ADDR_PRIMARY = 0x27;   // Most common PCF8574 address
-static const uint8_t LCD_ADDR_ALT = 0x3F;       // Common alternate address
-LiquidCrystal_I2C g_lcdPrimary(LCD_ADDR_PRIMARY, LCD_COLS, LCD_ROWS);
-LiquidCrystal_I2C g_lcdAlt(LCD_ADDR_ALT, LCD_COLS, LCD_ROWS);
-static LiquidCrystal_I2C* g_lcd = &g_lcdPrimary;
+static const uint8_t LCD_ADDR_CANDIDATES[] = {
+  0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,  // PCF8574 range
+  0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F   // PCF8574A range
+};
+alignas(LiquidCrystal_I2C) static uint8_t g_lcdStorage[sizeof(LiquidCrystal_I2C)];
+static LiquidCrystal_I2C* g_lcd = nullptr;
 
 // PGA2310 transfer and volume limits
 static const float PGA_MIN_DB = -95.5f;    // PGA2310 minimum in dB
@@ -182,16 +184,13 @@ static void initDisplay()
   delay(80);
 
   for (uint8_t attempt = 0; attempt < 5 && !g_lcdAvailable; ++attempt) {
-    if (i2cDevicePresent(LCD_ADDR_PRIMARY)) {
-      g_lcd = &g_lcdPrimary;
-      g_lcdAvailable = true;
-      break;
-    }
-
-    if (i2cDevicePresent(LCD_ADDR_ALT)) {
-      g_lcd = &g_lcdAlt;
-      g_lcdAvailable = true;
-      break;
+    for (uint8_t i = 0; i < sizeof(LCD_ADDR_CANDIDATES); ++i) {
+      const uint8_t addr = LCD_ADDR_CANDIDATES[i];
+      if (i2cDevicePresent(addr)) {
+        g_lcd = new (g_lcdStorage) LiquidCrystal_I2C(addr, LCD_COLS, LCD_ROWS);
+        g_lcdAvailable = true;
+        break;
+      }
     }
 
     delay(20);

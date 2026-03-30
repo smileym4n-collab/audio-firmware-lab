@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` LCD detection now scans full PCF8574/PCF8574A I2C ranges (`0x20..0x27`, `0x38..0x3F`) instead of only `0x27`/`0x3F`, improving compatibility with generic 16x2 backpacks
+- `attiny/1616/PreAmp` version bumped to `0.1.11`
+
+### Fixed
 - `attiny/1616/PreAmp` now hard-selects Relay 1 (DAC) whenever `PA7` is below `0.8V` (`<=248` ADC @ 3.3V), addressing missed DAC selection
 - `attiny/1616/PreAmp` version bumped to `0.1.10`
 
