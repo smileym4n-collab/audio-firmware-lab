@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.8
+  Version: 0.1.9
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -68,7 +68,7 @@ static const uint8_t VOLUME_CURVE_BLEND_PERCENT = 60;
 
 // ADC / control timing
 static const uint16_t INPUT_POLL_MS  = 20;
-static const uint16_t VOLUME_POLL_MS = 15;
+static const uint16_t VOLUME_POLL_MS = 50;
 static const uint16_t DISPLAY_POLL_MS = 120;
 
 // Motor control behaviour
@@ -161,6 +161,12 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
     sum += analogRead(pin);
   }
   return static_cast<uint16_t>(sum / samples);
+}
+
+static uint16_t readVolumeAdc()
+{
+  // Keep PB1 loading as low as practical: single conversion, no extra averaging.
+  return analogRead(VOL_ADC_PIN);
 }
 
 static bool i2cDevicePresent(uint8_t address)
@@ -530,7 +536,7 @@ void setup()
   g_irPrevLevelHigh = (digitalRead(IR_PIN) == HIGH);
   g_irLastEdgeUs = micros();
 
-  g_currentAdc = readAdcAveraged(VOL_ADC_PIN, 4);
+  g_currentAdc = readVolumeAdc();
   g_targetAdc = g_currentAdc;
   applyPgaFromAdc(g_currentAdc);
 
@@ -567,7 +573,7 @@ void loop()
 
   if ((now - g_lastVolumePollMs) >= VOLUME_POLL_MS) {
     g_lastVolumePollMs = now;
-    g_currentAdc = readAdcAveraged(VOL_ADC_PIN, 4);
+    g_currentAdc = readVolumeAdc();
     applyPgaFromAdc(g_currentAdc);
     motorDriveTowardTarget();
   }

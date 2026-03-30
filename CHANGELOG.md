@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` reduces `PB1` (`VOL IN`) sampling load by using single-conversion reads and slower volume poll timing (`50ms`) instead of repeated averaged conversions
+- `attiny/1616/PreAmp` version bumped to `0.1.9`
+
+### Fixed
 - `attiny/1616/PreAmp` now explicitly forces default megaTinyCore TWI pin mux (`Wire.swap(0)`) and configures `PA1/PA2` as input before `Wire.begin()`, matching the fixed I2C pin map
 - `attiny/1616/PreAmp` version bumped to `0.1.8`
 
