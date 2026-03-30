@@ -1,6 +1,6 @@
 /*
   PreAmp.ino - ATtiny1616 preamp controller
-  Version: 0.1.6
+  Version: 0.1.7
 
   Features:
   - PGA2310 volume control, capped at +10.0 dB maximum
@@ -85,10 +85,13 @@ static const uint8_t IR_CMD_VOL_DOWN = 0x52;
 // Relay 2 (AUX 1): 1.170V  (~363 ADC counts)
 // Relay 3 (AUX 2): 1.940V  (~601 ADC counts)
 // Relay 4 (PHONO): 2.700V  (~837 ADC counts)
-// Midpoint thresholds: 266, 482, 719.
-static const uint16_t THRESHOLD_R1_TO_R2 = 266;
-static const uint16_t THRESHOLD_R2_TO_R3 = 482;
-static const uint16_t THRESHOLD_R3_TO_R4 = 719;
+static const uint16_t INPUT_CENTER_R1 = 168;
+static const uint16_t INPUT_CENTER_R2 = 363;
+static const uint16_t INPUT_CENTER_R3 = 601;
+static const uint16_t INPUT_CENTER_R4 = 837;
+
+// Require repeated consistent readings before switching relays.
+static const uint8_t INPUT_CONFIRM_COUNT = 3;
 
 // -----------------------------------------------------------------------------
 // State
@@ -119,6 +122,8 @@ static uint32_t g_lastDisplayPollMs = 0;
 static uint32_t g_bootMs = 0;
 
 static bool g_outputRelayEnabled = false;
+static InputSource g_pendingInput = INPUT_DAC;
+static uint8_t g_inputConfirmCounter = 0;
 
 // Motor runtime guard
 static bool g_motorRunning = false;
@@ -281,16 +286,27 @@ static void applyPgaFromAdc(uint16_t adcValue)
 
 static InputSource decodeInputFromAdc(uint16_t adcValue)
 {
-  if (adcValue < THRESHOLD_R1_TO_R2) {
-    return INPUT_DAC;
+  const uint16_t dR1 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R1)));
+  const uint16_t dR2 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R2)));
+  const uint16_t dR3 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R3)));
+  const uint16_t dR4 = static_cast<uint16_t>(abs(static_cast<int16_t>(adcValue) - static_cast<int16_t>(INPUT_CENTER_R4)));
+
+  InputSource closest = INPUT_DAC;
+  uint16_t best = dR1;
+
+  if (dR2 < best) {
+    best = dR2;
+    closest = INPUT_AUX1;
   }
-  if (adcValue < THRESHOLD_R2_TO_R3) {
-    return INPUT_AUX1;
+  if (dR3 < best) {
+    best = dR3;
+    closest = INPUT_AUX2;
   }
-  if (adcValue < THRESHOLD_R3_TO_R4) {
-    return INPUT_AUX2;
+  if (dR4 < best) {
+    closest = INPUT_PHONO;
   }
-  return INPUT_PHONO;
+
+  return closest;
 }
 
 static void driveInputRelays(InputSource src)
@@ -515,6 +531,7 @@ void setup()
   applyPgaFromAdc(g_currentAdc);
 
   g_activeInput = decodeInputFromAdc(readAdcAveraged(INPUT_ADC_PIN, 4));
+  g_pendingInput = g_activeInput;
   driveInputRelays(g_activeInput);
 
   updateDisplay();
@@ -529,9 +546,17 @@ void loop()
 
   if ((now - g_lastInputPollMs) >= INPUT_POLL_MS) {
     g_lastInputPollMs = now;
-    const InputSource newInput = decodeInputFromAdc(readAdcAveraged(INPUT_ADC_PIN, 4));
-    if (newInput != g_activeInput) {
-      g_activeInput = newInput;
+    const InputSource candidateInput = decodeInputFromAdc(readAdcAveraged(INPUT_ADC_PIN, 4));
+
+    if (candidateInput != g_pendingInput) {
+      g_pendingInput = candidateInput;
+      g_inputConfirmCounter = 0;
+    } else if (g_inputConfirmCounter < INPUT_CONFIRM_COUNT) {
+      ++g_inputConfirmCounter;
+    }
+
+    if (g_pendingInput != g_activeInput && g_inputConfirmCounter >= INPUT_CONFIRM_COUNT) {
+      g_activeInput = g_pendingInput;
       driveInputRelays(g_activeInput);
     }
   }

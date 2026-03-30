@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmp` input relay selection now uses nearest-measured ADC centers with multi-sample confirmation before switching, improving stability on `PA7` ladder noise/variance
+- `attiny/1616/PreAmp` version bumped to `0.1.7`
+
+### Fixed
 - `attiny/1616/PreAmp` reverts `PB1` setup to plain `pinMode(INPUT)` only (no forced `PORTB.PIN1CTRL` overrides) after reports of in-circuit pin loading when flashed
 - `attiny/1616/PreAmp` adds LCD startup settle delay and multi-attempt I2C address probe (`0x27` / `0x3F`) to improve display bring-up reliability
 - `attiny/1616/PreAmp` version bumped to `0.1.6`
