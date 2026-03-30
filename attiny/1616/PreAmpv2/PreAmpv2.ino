@@ -21,6 +21,38 @@
 #include <Wire.h>
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
+#include <stdio.h>
+#include <string.h>
+
+/*
+  Bring-up notes:
+  - LCD library required: "hd44780" by Bill Perry (uses hd44780_I2Cexp).
+  - megaTinyCore board option must use Wire on PB2/PB3:
+      Tools -> Wire -> PB2/PB3
+  - Confirmed hardware detail: PGA2310 MUTE is active LOW.
+  - First hardware checks:
+      1) relay polarity (active/inactive states),
+      2) LCD operation/addressing,
+      3) raw ADC readings (volume pot + input ladder),
+      4) input-ladder threshold tuning on real hardware,
+      5) subjective volume taper feel.
+*/
+
+// Compile-time debug flag for serial bring-up logs.
+// 0 = disabled (default), 1 = enabled.
+#ifndef PREAMPV2_DEBUG
+#define PREAMPV2_DEBUG 0
+#endif
+
+#if PREAMPV2_DEBUG
+#define DBG_BEGIN(baud) Serial.begin(baud)
+#define DBG_PRINTLN(...)  Serial.println(__VA_ARGS__)
+#define DBG_PRINT(...)    Serial.print(__VA_ARGS__)
+#else
+#define DBG_BEGIN(baud) do {} while (0)
+#define DBG_PRINTLN(...)  do {} while (0)
+#define DBG_PRINT(...)    do {} while (0)
+#endif
 
 // -----------------------------------------------------------------------------
 // Pin map (fixed by hardware)
@@ -53,6 +85,12 @@ static const uint8_t INPUT_ADC_PIN    = PIN_PA7; // Input selector ladder ADC
 static const uint8_t LCD_COLS = 16;
 static const uint8_t LCD_ROWS = 2;
 
+// Output polarity controls (adjust only if hardware driver polarity differs).
+static const uint8_t RELAY_ACTIVE_STATE      = HIGH;
+static const uint8_t RELAY_INACTIVE_STATE    = LOW;
+static const uint8_t PGA_MUTE_ACTIVE_STATE   = LOW;  // Confirmed active LOW.
+static const uint8_t PGA_MUTE_INACTIVE_STATE = HIGH; // Confirmed inactive HIGH.
+
 // PGA2310 gain range and project cap.
 // PGA2310 uses 0.5 dB steps, code 0 = -95.5 dB, code 255 = +31.5 dB.
 // This project limits control to +10.0 dB max.
@@ -79,6 +117,13 @@ static const uint16_t OUTPUT_RELAY_DELAY_MS = 1000;
 static const uint16_t INPUT_SAMPLE_PERIOD_MS = 20;
 static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
 static const uint16_t DISPLAY_PERIOD_MS = 120;
+static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
+
+// ADC assumptions (megaTinyCore default analogRead behavior):
+// - expected resolution is 10-bit (0..1023)
+// - default reference is VDD unless explicitly changed by firmware/board config
+// - input-ladder thresholds below are expected to need real-hardware tuning
+//   due to resistor tolerance, source impedance, and VDD variation
 
 // -----------------------------------------------------------------------------
 // Types/state
@@ -111,6 +156,10 @@ static uint32_t g_bootMs = 0;
 static uint32_t g_lastInputMs = 0;
 static uint32_t g_lastVolumeMs = 0;
 static uint32_t g_lastDisplayMs = 0;
+static uint32_t g_lastDebugMs = 0;
+
+static uint16_t g_lastVolAdc = 0;
+static uint16_t g_lastInputAdc = 0;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -156,31 +205,66 @@ static float pgaCodeToDb(uint8_t code)
 
 static float volumeAdcToRequestedDb(uint16_t adcValue)
 {
-  // Linear mapping from pot ADC (0..1023) into project range (-95.5..+10.0 dB).
+  // Pot taper strategy for better listening feel with linear 10k pot:
+  // - Segment A (0..70%): expands low-to-mid listening range (-95.5..-20 dB)
+  //   using a concave curve to avoid bunching useful control near the top.
+  // - Segment B (70..95%): smoother progression through common listening
+  //   levels (-20..0 dB).
+  // - Segment C (95..100%): reserves top travel for 0..+10 dB headroom.
+  // Keep these constants readable/tunable for hardware listening tests.
   const float normalized = static_cast<float>(adcValue) / 1023.0f;
-  return PGA_MIN_DB + normalized * (PGA_MAX_DB - PGA_MIN_DB);
+
+  const float splitA = 0.70f;
+  const float splitB = 0.95f;
+
+  if (normalized <= splitA) {
+    const float x = normalized / splitA;
+    const float shaped = x * x; // expanded low-level control
+    return PGA_MIN_DB + shaped * (-20.0f - PGA_MIN_DB);
+  }
+
+  if (normalized <= splitB) {
+    const float x = (normalized - splitA) / (splitB - splitA);
+    return -20.0f + x * (0.0f - (-20.0f));
+  }
+
+  const float x = (normalized - splitB) / (1.0f - splitB);
+  return 0.0f + x * (PGA_MAX_DB - 0.0f);
 }
 
 static void pgaWriteStereo(uint8_t code)
 {
+  // PGA2310 serial write (datasheet-compatible):
+  // - CS must be LOW during write
+  // - SDI is MSB-first, latched on SCLK rising edge
+  // - 16 clocks total: Right byte then Left byte
+  // Hardware SPI is not used because assigned pins (PA5/PA2/PA3) are fixed
+  // by this project pin map and may not match the ATtiny1616 SPI hardware pins.
   digitalWrite(PGA_CS_PIN, LOW);
-
-  // Left channel byte.
-  for (int8_t bit = 7; bit >= 0; --bit) {
-    digitalWrite(PGA_SCLK_PIN, LOW);
-    digitalWrite(PGA_SDI_PIN, (code & (1u << bit)) ? HIGH : LOW);
-    digitalWrite(PGA_SCLK_PIN, HIGH);
-  }
+  delayMicroseconds(1);
 
   // Right channel byte.
   for (int8_t bit = 7; bit >= 0; --bit) {
     digitalWrite(PGA_SCLK_PIN, LOW);
     digitalWrite(PGA_SDI_PIN, (code & (1u << bit)) ? HIGH : LOW);
+    delayMicroseconds(1);
     digitalWrite(PGA_SCLK_PIN, HIGH);
+    delayMicroseconds(1);
+  }
+
+  // Left channel byte.
+  for (int8_t bit = 7; bit >= 0; --bit) {
+    digitalWrite(PGA_SCLK_PIN, LOW);
+    digitalWrite(PGA_SDI_PIN, (code & (1u << bit)) ? HIGH : LOW);
+    delayMicroseconds(1);
+    digitalWrite(PGA_SCLK_PIN, HIGH);
+    delayMicroseconds(1);
   }
 
   digitalWrite(PGA_SCLK_PIN, LOW);
+  delayMicroseconds(1);
   digitalWrite(PGA_CS_PIN, HIGH);
+  delayMicroseconds(1);
 }
 
 static void setPgaVolumeDb(float requestedDb)
@@ -224,10 +308,10 @@ static InputSource readSelectedInput(uint16_t adcValue)
 static void updateInputRelays(InputSource input)
 {
   // One-hot relay control: only one input relay active at any time.
-  digitalWrite(RELAY_DAC_PIN,   input == INPUT_DAC   ? HIGH : LOW);
-  digitalWrite(RELAY_AUX1_PIN,  input == INPUT_AUX1  ? HIGH : LOW);
-  digitalWrite(RELAY_AUX2_PIN,  input == INPUT_AUX2  ? HIGH : LOW);
-  digitalWrite(RELAY_PHONO_PIN, input == INPUT_PHONO ? HIGH : LOW);
+  digitalWrite(RELAY_DAC_PIN,   input == INPUT_DAC   ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_AUX1_PIN,  input == INPUT_AUX1  ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_AUX2_PIN,  input == INPUT_AUX2  ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_PHONO_PIN, input == INPUT_PHONO ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
 }
 
 static void updateDisplay()
@@ -302,11 +386,11 @@ static void initializeGpioSafe()
   pinMode(INPUT_ADC_PIN, INPUT);
 
   // Safe startup states.
-  digitalWrite(RELAY_DAC_PIN, LOW);
-  digitalWrite(RELAY_AUX1_PIN, LOW);
-  digitalWrite(RELAY_AUX2_PIN, LOW);
-  digitalWrite(RELAY_PHONO_PIN, LOW);
-  digitalWrite(RELAY_OUTPUT_PIN, LOW); // output relay OFF during delay
+  digitalWrite(RELAY_DAC_PIN, RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_AUX1_PIN, RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_AUX2_PIN, RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_PHONO_PIN, RELAY_INACTIVE_STATE);
+  digitalWrite(RELAY_OUTPUT_PIN, RELAY_INACTIVE_STATE); // output relay OFF during delay
 
   digitalWrite(MOTOR_1_PIN, LOW); // placeholder-safe
   digitalWrite(MOTOR_2_PIN, LOW); // placeholder-safe
@@ -314,15 +398,19 @@ static void initializeGpioSafe()
   digitalWrite(PGA_CS_PIN, HIGH);
   digitalWrite(PGA_SCLK_PIN, LOW);
   digitalWrite(PGA_SDI_PIN, LOW);
-  digitalWrite(PGA_MUTE_PIN, LOW); // mute asserted during startup (assumed active LOW)
+  digitalWrite(PGA_MUTE_PIN, PGA_MUTE_ACTIVE_STATE); // mute asserted during startup (active LOW)
 }
 
 void setup()
 {
   initializeGpioSafe();
+  DBG_BEGIN(115200);
+  DBG_PRINTLN(F("PreAmpv2 debug enabled"));
 
   // PB2/PB3 I2C mapping is selected in megaTinyCore board options
   // (Tools -> Wire -> PB2/PB3) for this hardware.
+  (void)I2C_SDA_PIN;
+  (void)I2C_SCL_PIN;
   Wire.begin();
   initializeLcd();
 
@@ -342,8 +430,8 @@ void loop()
 
   // Delayed output relay turn-on.
   if (!g_outputRelayEnabled && (nowMs - g_bootMs >= OUTPUT_RELAY_DELAY_MS)) {
-    digitalWrite(RELAY_OUTPUT_PIN, HIGH);
-    digitalWrite(PGA_MUTE_PIN, HIGH); // unmute after relay engages
+    digitalWrite(RELAY_OUTPUT_PIN, RELAY_ACTIVE_STATE);
+    digitalWrite(PGA_MUTE_PIN, PGA_MUTE_INACTIVE_STATE); // unmute after relay engages
     g_outputRelayEnabled = true;
   }
 
@@ -352,6 +440,7 @@ void loop()
     g_lastInputMs = nowMs;
 
     const uint16_t inputAdc = readAdcAveraged(INPUT_ADC_PIN, 8);
+    g_lastInputAdc = inputAdc;
     const InputSource candidate = readSelectedInput(inputAdc);
 
     if (candidate == g_pendingInput) {
@@ -375,6 +464,7 @@ void loop()
     g_lastVolumeMs = nowMs;
 
     const uint16_t volAdc = readAdcAveraged(VOL_ADC_PIN, 8);
+    g_lastVolAdc = volAdc;
     const float requestedDb = volumeAdcToRequestedDb(volAdc);
     setPgaVolumeDb(requestedDb);
   }
@@ -383,6 +473,20 @@ void loop()
   if (nowMs - g_lastDisplayMs >= DISPLAY_PERIOD_MS) {
     g_lastDisplayMs = nowMs;
     updateDisplay();
+  }
+
+  if (PREAMPV2_DEBUG && (nowMs - g_lastDebugMs >= DEBUG_PRINT_PERIOD_MS)) {
+    g_lastDebugMs = nowMs;
+    DBG_PRINT(F("volAdc="));
+    DBG_PRINT(g_lastVolAdc);
+    DBG_PRINT(F(" inputAdc="));
+    DBG_PRINT(g_lastInputAdc);
+    DBG_PRINT(F(" input="));
+    DBG_PRINT(INPUT_NAMES[g_selectedInput]);
+    DBG_PRINT(F(" pgaDb="));
+    DBG_PRINT(g_pgaDb, 1);
+    DBG_PRINT(F(" code="));
+    DBG_PRINTLN(g_pgaCode);
   }
 
   // Placeholder for future IR task (PA1).
