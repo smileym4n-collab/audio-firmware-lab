@@ -5,6 +5,8 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmpv2` fixes `snprintf` float-format build warning by casting displayed dB value to `double` for `%f`
+- `attiny/1616/PreAmpv2` version bumped to `0.2.3`
 - `attiny/1616/PreAmpv2` now explicitly configures I2C for LCD on `PB2/PB3` at runtime (`Wire.swap(1)` when supported) before LCD init, improving display bring-up on mismatched board menu settings
 - `attiny/1616/PreAmpv2` version bumped to `0.2.2`
 - `attiny/1616/PreAmpv2` updates input-ladder thresholds to measured selector voltages (`0.58V`, `1.21V`, `1.98V`, `2.75V`) and increases hysteresis for cleaner relay selection

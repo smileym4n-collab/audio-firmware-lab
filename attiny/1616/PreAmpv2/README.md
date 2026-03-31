@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.2.2
+Version: 0.2.3
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
