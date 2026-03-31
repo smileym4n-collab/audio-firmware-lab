@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.2.4
+  Version: 0.3.0
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -46,6 +46,10 @@
 
 #ifndef PREAMPV2_LCD_DEBUG
 #define PREAMPV2_LCD_DEBUG 0
+#endif
+
+#ifndef PREAMPV2_LCD_DIAGNOSTIC
+#define PREAMPV2_LCD_DIAGNOSTIC 1
 #endif
 
 #if PREAMPV2_DEBUG
@@ -122,6 +126,7 @@ static const uint16_t INPUT_SAMPLE_PERIOD_MS = 20;
 static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
 static const uint16_t DISPLAY_PERIOD_MS = 120;
 static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
+static const uint16_t LCD_DIAGNOSTIC_HOLD_MS = 5000;
 
 // ADC assumptions (megaTinyCore default analogRead behavior):
 // - expected resolution is 10-bit (0..1023)
@@ -164,6 +169,10 @@ static uint32_t g_lastDebugMs = 0;
 
 static uint16_t g_lastVolAdc = 0;
 static uint16_t g_lastInputAdc = 0;
+static uint8_t g_i2cRouteActive = 0xFF;
+static uint8_t g_i2cDeviceCount = 0;
+static uint8_t g_i2cFirstAddress = 0;
+static int8_t g_lcdInitStatus = -127;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -179,6 +188,29 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
   }
 
   return static_cast<uint16_t>(sum / samples);
+}
+
+static uint8_t scanI2cBus(uint8_t* firstAddressOut)
+{
+  uint8_t count = 0;
+  uint8_t first = 0;
+
+  for (uint8_t addr = 0x08; addr <= 0x77; ++addr) {
+    Wire.beginTransmission(addr);
+    const uint8_t err = Wire.endTransmission();
+    if (err == 0) {
+      if (count == 0) {
+        first = addr;
+      }
+      ++count;
+    }
+  }
+
+  if (firstAddressOut != nullptr) {
+    *firstAddressOut = first;
+  }
+
+  return count;
 }
 
 static void configureAnalogInputs()
@@ -197,10 +229,38 @@ static void configureAnalogInputs()
 
 static void configureI2cForDisplay()
 {
-  // I2C pins are fixed to PA1/PA2 by this hardware pin map.
-  // Keep board setting aligned with the same route in megaTinyCore.
+  // I2C pins are fixed to PA1/PA2 by hardware map.
+  // Diagnostic: scan route 0 first (PA1/PA2 on megaTinyCore), then route 1
+  // when TWI_MUX is available. This helps detect board-menu route mismatch.
+  g_i2cRouteActive = 0xFF;
+  g_i2cDeviceCount = 0;
+  g_i2cFirstAddress = 0;
+
+#if defined(TWI_MUX)
+  for (uint8_t route = 0; route < 2; ++route) {
+    Wire.swap(route);
+    delay(2);
+    Wire.begin();
+    Wire.setClock(100000);
+
+    uint8_t firstAddr = 0;
+    const uint8_t count = scanI2cBus(&firstAddr);
+    if (count > 0) {
+      g_i2cRouteActive = route;
+      g_i2cDeviceCount = count;
+      g_i2cFirstAddress = firstAddr;
+      return;
+    }
+  }
+
+  // No device found on either route: fall back to PA1/PA2 route.
+  Wire.swap(0);
+#endif
   Wire.begin();
   Wire.setClock(100000);
+
+  g_i2cRouteActive = 0;
+  g_i2cDeviceCount = scanI2cBus(&g_i2cFirstAddress);
 }
 
 static uint8_t dbToPgaCode(float db)
@@ -392,6 +452,29 @@ static void updateDisplay()
   lastVolAdcShown = g_lastVolAdc;
   lastCodeShown = g_pgaCode;
 #else
+#if PREAMPV2_LCD_DIAGNOSTIC
+  if ((millis() - g_bootMs) < LCD_DIAGNOSTIC_HOLD_MS) {
+    char line0[LCD_COLS + 1];
+    char line1[LCD_COLS + 1];
+    snprintf(line0, sizeof(line0), "I2C R%u D:%u A:%02X",
+             g_i2cRouteActive, g_i2cDeviceCount, g_i2cFirstAddress);
+    snprintf(line1, sizeof(line1), "LCD init:%d", g_lcdInitStatus);
+
+    g_lcd.setCursor(0, 0);
+    g_lcd.print(line0);
+    for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
+      g_lcd.print(' ');
+    }
+
+    g_lcd.setCursor(0, 1);
+    g_lcd.print(line1);
+    for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
+      g_lcd.print(' ');
+    }
+    return;
+  }
+#endif
+
   static InputSource lastInputShown = INPUT_COUNT;
   static int16_t lastDbTenthsShown = 32767;
 
@@ -425,6 +508,7 @@ static void initializeLcd()
   // Uses Bill Perry's hd44780 library auto-probing I2Cexp driver.
   // This is generally more reliable on megaavr than many LiquidCrystal_I2C forks.
   const int status = g_lcd.begin(LCD_COLS, LCD_ROWS);
+  g_lcdInitStatus = static_cast<int8_t>(status);
   g_lcdReady = (status == 0);
 
   if (!g_lcdReady) {
@@ -483,8 +567,16 @@ void setup()
   (void)I2C_SDA_PIN;
   (void)I2C_SCL_PIN;
   configureI2cForDisplay();
+  DBG_PRINT(F("I2C route="));
+  DBG_PRINT(g_i2cRouteActive);
+  DBG_PRINT(F(" devices="));
+  DBG_PRINT(g_i2cDeviceCount);
+  DBG_PRINT(F(" first=0x"));
+  DBG_PRINTLN(g_i2cFirstAddress, HEX);
   delay(20);
   initializeLcd();
+  DBG_PRINT(F("LCD init status="));
+  DBG_PRINTLN(g_lcdInitStatus);
 
   // Safe initial input and low volume before unmuting/output enable.
   g_selectedInput = INPUT_DAC;

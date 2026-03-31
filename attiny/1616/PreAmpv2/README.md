@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.2.4
+Version: 0.3.0
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -58,3 +58,9 @@ Install these libraries:
 - `hd44780` by Bill Perry (for `hd44780_I2Cexp`)
 
 `Wire` and `Arduino` are from the core/toolchain.
+
+## LCD diagnostic mode (for no-UART bring-up)
+- `#define PREAMPV2_LCD_DIAGNOSTIC 1` (default in `PreAmpv2.ino`) shows startup diagnostics for 5 seconds:
+  - line 1: active I2C route, detected device count, first detected address
+  - line 2: LCD init status code from `hd44780_I2Cexp::begin()`
+- Keep `Tools -> Wire -> PA1/PA2` selected for this hardware.

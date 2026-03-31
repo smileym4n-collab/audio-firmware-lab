@@ -5,6 +5,9 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmpv2` adds LCD bring-up diagnostics (I2C route scan + detected address/count + LCD init status) to help debug blank-screen issues without UART
+- `attiny/1616/PreAmpv2` now scans both megaTinyCore TWI routes at startup (when supported) and selects the route where an I2C device is detected
+- `attiny/1616/PreAmpv2` version bumped to `0.3.0`
 - `attiny/1616/PreAmpv2` updates pin mapping to final hardware assignment: I2C moved to `PA1`/`PA2`, IR moved to `PA6`, and PGA2310 SCLK moved to `PB3`
 - `attiny/1616/PreAmpv2` removes runtime `Wire.swap(1)` route override and now expects/uses the `PA1`/`PA2` Wire route directly
 - `attiny/1616/PreAmpv2` version bumped to `0.2.4`
