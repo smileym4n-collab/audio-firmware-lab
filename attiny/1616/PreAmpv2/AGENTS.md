@@ -41,3 +41,7 @@ Applies to:
 - Unless explicitly asked otherwise:
   - line 1 shows the selected input
   - line 2 shows volume in dB
+
+- If PreAmpv2.ino behavior changes, update README.md in the same task when the user asks for documentation or when the existing README would become inaccurate.
+- Before editing README.md or PreAmpv2.ino, always read the current file contents from the active worktree.
+- Do not document LCD behavior that is not present in the current code.
