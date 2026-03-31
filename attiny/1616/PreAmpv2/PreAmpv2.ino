@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.2.1
+  Version: 0.2.2
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -193,6 +193,18 @@ static void configureAnalogInputs()
 
   PORTA.PIN7CTRL &= ~PORT_PULLUPEN_bm;
   PORTA.PIN7CTRL = (PORTA.PIN7CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
+}
+
+static void configureI2cForDisplay()
+{
+  // Prefer explicit runtime TWI route selection to PB2/PB3 where supported.
+  // This avoids relying only on the IDE Tools -> Wire menu when board profiles
+  // are mismatched.
+#if defined(TWI_MUX)
+  Wire.swap(1);
+#endif
+  Wire.begin();
+  Wire.setClock(100000);
 }
 
 static uint8_t dbToPgaCode(float db)
@@ -471,11 +483,11 @@ void setup()
   DBG_BEGIN(115200);
   DBG_PRINTLN(F("PreAmpv2 debug enabled"));
 
-  // PB2/PB3 I2C mapping is selected in megaTinyCore board options
-  // (Tools -> Wire -> PB2/PB3) for this hardware.
+  // PB2/PB3 I2C mapping is required for this hardware.
   (void)I2C_SDA_PIN;
   (void)I2C_SCL_PIN;
-  Wire.begin();
+  configureI2cForDisplay();
+  delay(20);
   initializeLcd();
 
   // Safe initial input and low volume before unmuting/output enable.
