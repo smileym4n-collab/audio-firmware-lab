@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.1.0
+Version: 0.2.1
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -30,10 +30,10 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 
 ## Implemented behavior
 - 4-way input select from resistor ladder on `PA7`:
-  - ~0.8V -> DAC
-  - ~1.170V -> AUX 1
-  - ~1.940V -> AUX 2
-  - ~2.700V -> PHONO
+  - ~0.58V -> DAC
+  - ~1.21V -> AUX 1
+  - ~1.98V -> AUX 2
+  - ~2.75V -> PHONO
 - Midpoint boundary decoding with ADC hysteresis + sample debounce to reduce relay chatter.
 - Exactly one input relay is energized at a time.
 - Output relay (`PC3`) remains OFF on startup and enables after 1 second.

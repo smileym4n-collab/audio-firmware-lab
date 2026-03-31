@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.2.0
+  Version: 0.2.1
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -101,18 +101,18 @@ static const uint8_t PGA_MUTE_INACTIVE_STATE = HIGH; // Confirmed inactive HIGH.
 static const float PGA_MIN_DB = -95.5f;
 static const float PGA_MAX_DB = +10.0f;
 
-// Input ladder expected voltages at 3.3V:
-// DAC   ~0.80V -> ADC ~248
-// AUX1  ~1.17V -> ADC ~363
-// AUX2  ~1.94V -> ADC ~601
-// PHONO ~2.70V -> ADC ~837
+// Input ladder expected voltages from measured hardware at 3.3V:
+// DAC   ~0.58V -> ADC ~180
+// AUX1  ~1.21V -> ADC ~375
+// AUX2  ~1.98V -> ADC ~614
+// PHONO ~2.75V -> ADC ~852
 // Midpoint boundaries:
-static const uint16_t INPUT_BOUNDARY_1 = 306; // between DAC and AUX1
-static const uint16_t INPUT_BOUNDARY_2 = 482; // between AUX1 and AUX2
-static const uint16_t INPUT_BOUNDARY_3 = 719; // between AUX2 and PHONO
+static const uint16_t INPUT_BOUNDARY_1 = 278; // between DAC and AUX1
+static const uint16_t INPUT_BOUNDARY_2 = 495; // between AUX1 and AUX2
+static const uint16_t INPUT_BOUNDARY_3 = 733; // between AUX2 and PHONO
 
 // Schmitt hysteresis around each boundary to reduce chatter.
-static const uint8_t INPUT_HYST_ADC = 12;
+static const uint8_t INPUT_HYST_ADC = 16;
 
 // Debounce requirement for input selection changes.
 static const uint8_t INPUT_STABLE_SAMPLES_REQUIRED = 3;
@@ -179,6 +179,20 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
   }
 
   return static_cast<uint16_t>(sum / samples);
+}
+
+static void configureAnalogInputs()
+{
+  // Keep ADC pins strictly high-impedance to avoid biasing/pulling analog nodes.
+  // PB1 = volume pot input, PA7 = input ladder.
+  pinMode(VOL_ADC_PIN, INPUT);
+  pinMode(INPUT_ADC_PIN, INPUT);
+
+  PORTB.PIN1CTRL &= ~PORT_PULLUPEN_bm;
+  PORTB.PIN1CTRL = (PORTB.PIN1CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
+
+  PORTA.PIN7CTRL &= ~PORT_PULLUPEN_bm;
+  PORTA.PIN7CTRL = (PORTA.PIN7CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
 }
 
 static uint8_t dbToPgaCode(float db)
@@ -433,8 +447,7 @@ static void initializeGpioSafe()
   pinMode(PGA_SCLK_PIN, OUTPUT);
   pinMode(PGA_CS_PIN, OUTPUT);
 
-  pinMode(VOL_ADC_PIN, INPUT);
-  pinMode(INPUT_ADC_PIN, INPUT);
+  configureAnalogInputs();
 
   // Safe startup states.
   digitalWrite(RELAY_DAC_PIN, RELAY_INACTIVE_STATE);

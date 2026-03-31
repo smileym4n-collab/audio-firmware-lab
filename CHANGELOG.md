@@ -4,6 +4,11 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Fixed
+- `attiny/1616/PreAmpv2` updates input-ladder thresholds to measured selector voltages (`0.58V`, `1.21V`, `1.98V`, `2.75V`) and increases hysteresis for cleaner relay selection
+- `attiny/1616/PreAmpv2` explicitly configures `PB1` (`VOL IN`) and `PA7` (`INPUT IN`) as high-impedance analog inputs (pull-up disabled, digital input buffer disabled)
+- `attiny/1616/PreAmpv2` version bumped to `0.2.1`
+
 ### Added
 - `attiny/1616/PreAmpv2` initial `0.1.0` ATtiny1616 basic firmware with resistor-ladder input selection, one-hot relay control, PGA2310 pot volume control (capped at `+10 dB`), 16x2 I2C LCD status, and 1 second delayed output relay startup
 
