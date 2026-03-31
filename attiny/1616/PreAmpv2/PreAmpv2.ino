@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.2.3
+  Version: 0.2.4
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -9,7 +9,7 @@
   - Delayed output relay enable (1 second after startup)
 
   Placeholders only (not implemented yet):
-  - IR control on PA1
+  - IR control on PA6
   - Motorized potentiometer drive on PB5/PB4
 
   Target:
@@ -27,8 +27,8 @@
 /*
   Bring-up notes:
   - LCD library required: "hd44780" by Bill Perry (uses hd44780_I2Cexp).
-  - megaTinyCore board option must use Wire on PB2/PB3:
-      Tools -> Wire -> PB2/PB3
+  - megaTinyCore board option must use Wire on PA1/PA2:
+      Tools -> Wire -> PA1/PA2
   - Confirmed hardware detail: PGA2310 MUTE is active LOW.
   - First hardware checks:
       1) relay polarity (active/inactive states),
@@ -70,14 +70,14 @@ static const uint8_t RELAY_OUTPUT_PIN = PIN_PC3; // Relay 5 (OUTPUT)
 static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor 1 placeholder (not used yet)
 static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor 2 placeholder (not used yet)
 
-static const uint8_t I2C_SDA_PIN      = PIN_PB2; // SDA
-static const uint8_t I2C_SCL_PIN      = PIN_PB3; // SCL
+static const uint8_t I2C_SDA_PIN      = PIN_PA1; // SDA
+static const uint8_t I2C_SCL_PIN      = PIN_PA2; // SCL
 
-static const uint8_t IR_PIN           = PIN_PA1; // IR placeholder (not used yet)
+static const uint8_t IR_PIN           = PIN_PA6; // IR placeholder (not used yet)
 
 static const uint8_t PGA_MUTE_PIN     = PIN_PA4; // PGA2310 MUTE (assumed active LOW)
 static const uint8_t PGA_SDI_PIN      = PIN_PA5; // PGA2310 SDI
-static const uint8_t PGA_SCLK_PIN     = PIN_PA2; // PGA2310 SCLK
+static const uint8_t PGA_SCLK_PIN     = PIN_PB3; // PGA2310 SCLK
 static const uint8_t PGA_CS_PIN       = PIN_PA3; // PGA2310 CS (active LOW)
 
 static const uint8_t VOL_ADC_PIN      = PIN_PB1; // Volume potentiometer wiper (0V..3.3V)
@@ -197,12 +197,8 @@ static void configureAnalogInputs()
 
 static void configureI2cForDisplay()
 {
-  // Prefer explicit runtime TWI route selection to PB2/PB3 where supported.
-  // This avoids relying only on the IDE Tools -> Wire menu when board profiles
-  // are mismatched.
-#if defined(TWI_MUX)
-  Wire.swap(1);
-#endif
+  // I2C pins are fixed to PA1/PA2 by this hardware pin map.
+  // Keep board setting aligned with the same route in megaTinyCore.
   Wire.begin();
   Wire.setClock(100000);
 }
@@ -268,7 +264,7 @@ static void pgaWriteStereo(uint8_t code)
   // - CS must be LOW during write
   // - SDI is MSB-first, latched on SCLK rising edge
   // - 16 clocks total: Right byte then Left byte
-  // Hardware SPI is not used because assigned pins (PA5/PA2/PA3) are fixed
+  // Hardware SPI is not used because assigned pins (PA5/PB3/PA3) are fixed
   // by this project pin map and may not match the ATtiny1616 SPI hardware pins.
   digitalWrite(PGA_CS_PIN, LOW);
   delayMicroseconds(1);
@@ -483,7 +479,7 @@ void setup()
   DBG_BEGIN(115200);
   DBG_PRINTLN(F("PreAmpv2 debug enabled"));
 
-  // PB2/PB3 I2C mapping is required for this hardware.
+  // PA1/PA2 I2C mapping is required for this hardware.
   (void)I2C_SDA_PIN;
   (void)I2C_SCL_PIN;
   configureI2cForDisplay();
@@ -565,6 +561,6 @@ void loop()
     DBG_PRINTLN(g_pgaCode);
   }
 
-  // Placeholder for future IR task (PA1).
+  // Placeholder for future IR task (PA6).
   // Placeholder for future motorized potentiometer task (PB5/PB4).
 }

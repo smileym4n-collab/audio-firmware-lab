@@ -5,6 +5,9 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmpv2` updates pin mapping to final hardware assignment: I2C moved to `PA1`/`PA2`, IR moved to `PA6`, and PGA2310 SCLK moved to `PB3`
+- `attiny/1616/PreAmpv2` removes runtime `Wire.swap(1)` route override and now expects/uses the `PA1`/`PA2` Wire route directly
+- `attiny/1616/PreAmpv2` version bumped to `0.2.4`
 - `attiny/1616/PreAmpv2` fixes `snprintf` float-format build warning by casting displayed dB value to `double` for `%f`
 - `attiny/1616/PreAmpv2` version bumped to `0.2.3`
 - `attiny/1616/PreAmpv2` now explicitly configures I2C for LCD on `PB2/PB3` at runtime (`Wire.swap(1)` when supported) before LCD init, improving display bring-up on mismatched board menu settings

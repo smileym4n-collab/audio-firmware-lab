@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.2.3
+Version: 0.2.4
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -8,7 +8,7 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - MCU: ATtiny1616
 - Framework: Arduino (megaTinyCore)
 - Logic rail: 3.3V
-- Board option note: set `Tools -> Wire` to `PB2/PB3` to match this pin map (firmware also requests `Wire.swap(1)` when supported)
+- Board option note: set `Tools -> Wire` to `PA1/PA2` to match this pin map
 
 ## Pin map
 - `PB0`  - Relay 1 (`DAC`)
@@ -18,12 +18,12 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - `PC3`  - Relay 5 (`OUTPUT`)
 - `PB5`  - Motor 1 (placeholder only)
 - `PB4`  - Motor 2 (placeholder only)
-- `PB2`  - I2C SDA
-- `PB3`  - I2C SCL
-- `PA1`  - IR input (placeholder only)
+- `PA1`  - I2C SDA
+- `PA2`  - I2C SCL
+- `PA6`  - IR input (placeholder only)
 - `PA4`  - PGA2310 MUTE
 - `PA5`  - PGA2310 SDI
-- `PA2`  - PGA2310 SCLK
+- `PB3`  - PGA2310 SCLK
 - `PA3`  - PGA2310 CS
 - `PB1`  - Volume ADC input (`VOL IN`)
 - `PA7`  - Input select ADC input (`INPUT IN`)
@@ -45,12 +45,12 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 This sketch uses **Bill Perry's `hd44780` library** (`hd44780_I2Cexp` I/O class) instead of many `LiquidCrystal_I2C` forks, because it is typically more reliable and portable across Arduino cores (including megaavr / megaTinyCore).
 
 ## Volume mapping strategy
-- Pot ADC (`0..1023`) is mapped linearly to `-95.5 dB .. +10.0 dB`.
+- Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
 - Result is quantized to PGA2310 half-dB steps (device-native coding).
 - Firmware displays the **actual quantized dB value** sent to the PGA2310.
 
 ## Not implemented yet (placeholders only)
-- IR control logic on `PA1`
+- IR control logic on `PA6`
 - Motorized potentiometer control behavior on `PB5`/`PB4`
 
 ## Arduino IDE dependencies
