@@ -5,6 +5,24 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmpv2` adds LCD bring-up diagnostics (I2C route scan + detected address/count + LCD init status) to help debug blank-screen issues without UART
+- `attiny/1616/PreAmpv2` now scans both megaTinyCore TWI routes at startup (when supported) and selects the route where an I2C device is detected
+- `attiny/1616/PreAmpv2` version bumped to `0.3.0`
+- `attiny/1616/PreAmpv2` updates pin mapping to final hardware assignment: I2C moved to `PA1`/`PA2`, IR moved to `PA6`, and PGA2310 SCLK moved to `PB3`
+- `attiny/1616/PreAmpv2` removes runtime `Wire.swap(1)` route override and now expects/uses the `PA1`/`PA2` Wire route directly
+- `attiny/1616/PreAmpv2` version bumped to `0.2.4`
+- `attiny/1616/PreAmpv2` fixes `snprintf` float-format build warning by casting displayed dB value to `double` for `%f`
+- `attiny/1616/PreAmpv2` version bumped to `0.2.3`
+- `attiny/1616/PreAmpv2` now explicitly configures I2C for LCD on `PB2/PB3` at runtime (`Wire.swap(1)` when supported) before LCD init, improving display bring-up on mismatched board menu settings
+- `attiny/1616/PreAmpv2` version bumped to `0.2.2`
+- `attiny/1616/PreAmpv2` updates input-ladder thresholds to measured selector voltages (`0.58V`, `1.21V`, `1.98V`, `2.75V`) and increases hysteresis for cleaner relay selection
+- `attiny/1616/PreAmpv2` explicitly configures `PB1` (`VOL IN`) and `PA7` (`INPUT IN`) as high-impedance analog inputs (pull-up disabled, digital input buffer disabled)
+- `attiny/1616/PreAmpv2` version bumped to `0.2.1`
+
+### Added
+- `attiny/1616/PreAmpv2` initial `0.1.0` ATtiny1616 basic firmware with resistor-ladder input selection, one-hot relay control, PGA2310 pot volume control (capped at `+10 dB`), 16x2 I2C LCD status, and 1 second delayed output relay startup
+
+### Fixed
 - `attiny/1616/PreAmp` improves ADC stability by using a throwaway conversion + 4-sample averaging for both `VOL IN` and input-ladder reads
 - `attiny/1616/PreAmp` now probes LCD I2C addresses `0x27` and `0x3F`, reducing display bring-up failures on alternate backpacks
 - `attiny/1616/PreAmp` removes runtime `String` usage in LCD updates to avoid small-MCU heap fragmentation issues
