@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.0
+Version: 0.3.2
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -8,7 +8,6 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - MCU: ATtiny1616
 - Framework: Arduino (megaTinyCore)
 - Logic rail: 3.3V
-- Board option note: set `Tools -> Wire` to `PA1/PA2` to match this pin map
 
 ## Pin map
 - `PB0`  - Relay 1 (`DAC`)
@@ -42,7 +41,13 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - 16x2 LCD displays active input and actual dB sent to PGA.
 
 ## LCD library choice
-This sketch uses **Bill Perry's `hd44780` library** (`hd44780_I2Cexp` I/O class) instead of many `LiquidCrystal_I2C` forks, because it is typically more reliable and portable across Arduino cores (including megaavr / megaTinyCore).
+This sketch uses `LiquidCrystal_I2C`.
+
+I2C pins are explicitly forced in code with:
+
+```cpp
+Wire.pins(PIN_PA1, PIN_PA2);
+```
 
 ## Volume mapping strategy
 - Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
@@ -55,12 +60,6 @@ This sketch uses **Bill Perry's `hd44780` library** (`hd44780_I2Cexp` I/O class)
 
 ## Arduino IDE dependencies
 Install these libraries:
-- `hd44780` by Bill Perry (for `hd44780_I2Cexp`)
+- `LiquidCrystal_I2C`
 
 `Wire` and `Arduino` are from the core/toolchain.
-
-## LCD diagnostic mode (for no-UART bring-up)
-- `#define PREAMPV2_LCD_DIAGNOSTIC 1` (default in `PreAmpv2.ino`) shows startup diagnostics for 5 seconds:
-  - line 1: active I2C route, detected device count, first detected address
-  - line 2: LCD init status code from `hd44780_I2Cexp::begin()`
-- Keep `Tools -> Wire -> PA1/PA2` selected for this hardware.
