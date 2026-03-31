@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.1
+  Version: 0.3.2
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -396,7 +396,9 @@ static void updateDisplay()
 
   if (g_selectedInput != lastInputShown) {
     char line0[LCD_COLS + 1];
-    snprintf(line0, sizeof(line0), "Input: %-7s", INPUT_NAMES[g_selectedInput]);
+    const size_t inputLen = strlen(INPUT_NAMES[g_selectedInput]);
+    const int8_t inputPad = (LCD_COLS > inputLen) ? static_cast<int8_t>((LCD_COLS - inputLen) / 2) : 0;
+    snprintf(line0, sizeof(line0), "%*s%s", inputPad, "", INPUT_NAMES[g_selectedInput]);
     g_lcd.setCursor(0, 0);
     g_lcd.print(line0);
     for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
@@ -407,8 +409,12 @@ static void updateDisplay()
 
   const int16_t dbTenths = static_cast<int16_t>(g_pgaDb * 10.0f);
   if (dbTenths != lastDbTenthsShown) {
+    char volumeText[12];
+    snprintf(volumeText, sizeof(volumeText), "%.1f dB", static_cast<double>(g_pgaDb));
     char line1[LCD_COLS + 1];
-    snprintf(line1, sizeof(line1), "Vol: %6.1f dB", static_cast<double>(g_pgaDb));
+    const size_t volumeLen = strlen(volumeText);
+    const int8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<int8_t>((LCD_COLS - volumeLen) / 2) : 0;
+    snprintf(line1, sizeof(line1), "%*s%s", volumePad, "", volumeText);
     g_lcd.setCursor(0, 1);
     g_lcd.print(line1);
     for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
