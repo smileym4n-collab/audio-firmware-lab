@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.12
+  Version: 0.3.13
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -124,6 +124,8 @@ static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 static const uint16_t MOTOR_STEP_ADC = 8;              // One short IR press target increment.
 static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside this error band.
 static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
+static const uint16_t MOTOR_CONTROL_SAMPLE_MS = 8;     // Faster motor feedback sampling for smoother motion.
+static const uint8_t MOTOR_CONTROL_ADC_SAMPLES = 2;    // Light averaging for motor-control responsiveness.
 static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
 static const uint16_t ADC_AT_MAX_THRESHOLD = 1022;     // Treat as top mechanical travel.
 static const bool MOTOR_VOLUME_UP_POLARITY_NORMAL = false; // Inverted for current hardware; set true if wiring/motor polarity is opposite.
@@ -184,6 +186,7 @@ static bool g_motorRunning = false;
 static uint32_t g_motorRunStartMs = 0;
 static uint32_t g_lastIrMotorCommandMs = 0;
 static uint32_t g_lastIrApplyMs = 0;
+static uint32_t g_lastMotorSenseMs = 0;
 
 enum MotorDirection : uint8_t {
   MOTOR_DIR_STOP = 0,
@@ -191,6 +194,13 @@ enum MotorDirection : uint8_t {
   MOTOR_DIR_VOLUME_DOWN
 };
 static MotorDirection g_motorDirection = MOTOR_DIR_STOP;
+
+enum MotorControlMode : uint8_t {
+  MOTOR_MODE_IDLE = 0,
+  MOTOR_MODE_STEP,
+  MOTOR_MODE_HOLD
+};
+static MotorControlMode g_motorMode = MOTOR_MODE_IDLE;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -257,6 +267,7 @@ static void motorStop()
   digitalWrite(MOTOR_2_PIN, LOW);
   g_motorRunning = false;
   g_motorDirection = MOTOR_DIR_STOP;
+  g_motorMode = MOTOR_MODE_IDLE;
 }
 
 static void motorApplyDirection(bool in1High, bool in2High)
@@ -412,7 +423,7 @@ static void setPgaVolumeDb(float requestedDb)
   g_pgaDb = pgaCodeToDb(newCode); // show exact value sent
 }
 
-static void applyIrVolumeCommand(bool isVolUp)
+static void applyIrVolumeCommand(bool isVolUp, bool isRepeatFrame)
 {
   const uint32_t nowMs = millis();
   const bool wasRunning = g_motorRunning;
@@ -422,7 +433,46 @@ static void applyIrVolumeCommand(bool isVolUp)
   g_lastIrApplyMs = nowMs;
 
   const uint16_t currentAdc = g_lastVolAdc;
+  const MotorDirection requestedDirection = isVolUp ? MOTOR_DIR_VOLUME_UP : MOTOR_DIR_VOLUME_DOWN;
 
+  if (isRepeatFrame) {
+    // Hold mode: repeats are treated as keep-alive for continuous movement.
+    g_motorMode = MOTOR_MODE_HOLD;
+    if (isVolUp) {
+      if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+        g_motorTargetAdc = 1023;
+        motorStop();
+        return;
+      }
+      g_motorTargetAdc = 1023;
+      if (g_motorDirection != requestedDirection) {
+        motorStartVolumeUp();
+      } else if (!g_motorRunning) {
+        motorStartVolumeUp();
+      }
+    } else {
+      if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+        g_motorTargetAdc = 0;
+        motorStop();
+        return;
+      }
+      g_motorTargetAdc = 0;
+      if (g_motorDirection != requestedDirection) {
+        motorStartVolumeDown();
+      } else if (!g_motorRunning) {
+        motorStartVolumeDown();
+      }
+    }
+
+    if (!wasRunning) {
+      g_motorRunStartMs = nowMs;
+    }
+    g_lastIrMotorCommandMs = nowMs;
+    return;
+  }
+
+  // Short-press mode: one small controlled step from current pot position.
+  g_motorMode = MOTOR_MODE_STEP;
   if (isVolUp) {
     if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
       g_motorTargetAdc = 1023;
@@ -456,10 +506,11 @@ static void handleAppleIrCommand(uint16_t decodedAddress, uint8_t decodedCommand
     return;
   }
 
+  const bool isRepeatFrame = (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) != 0;
   if (decodedCommand == IR_APPLE_CMD_VOL_UP) {
-    applyIrVolumeCommand(true);
+    applyIrVolumeCommand(true, isRepeatFrame);
   } else if (decodedCommand == IR_APPLE_CMD_VOL_DOWN) {
-    applyIrVolumeCommand(false);
+    applyIrVolumeCommand(false, isRepeatFrame);
   }
 }
 
@@ -482,7 +533,11 @@ static void serviceIrReceiver()
 
 static void serviceMotorControl(uint32_t nowMs)
 {
-  const uint16_t currentAdc = g_lastVolAdc;
+  uint16_t currentAdc = g_lastVolAdc;
+  if ((nowMs - g_lastMotorSenseMs) >= MOTOR_CONTROL_SAMPLE_MS) {
+    g_lastMotorSenseMs = nowMs;
+    currentAdc = readAdcAveraged(VOL_ADC_PIN, MOTOR_CONTROL_ADC_SAMPLES);
+  }
 
   if ((currentAdc <= ADC_AT_MIN_THRESHOLD) && (g_motorDirection == MOTOR_DIR_VOLUME_DOWN)) {
     g_motorTargetAdc = 0;
@@ -512,7 +567,8 @@ static void serviceMotorControl(uint32_t nowMs)
     return;
   }
 
-  if (currentAdc + MOTOR_DEADBAND_ADC >= g_motorTargetAdc &&
+  if (g_motorMode == MOTOR_MODE_STEP &&
+      currentAdc + MOTOR_DEADBAND_ADC >= g_motorTargetAdc &&
       currentAdc <= g_motorTargetAdc + MOTOR_DEADBAND_ADC) {
     motorStop();
   }
