@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.3
+  Version: 0.3.4
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -106,9 +106,9 @@ static const float PGA_MAX_DB = +10.0f;
 // AUX2  ~1.98V -> ADC ~614
 // PHONO ~2.75V -> ADC ~852
 // Midpoint boundaries:
-static const uint16_t INPUT_BOUNDARY_1 = 278; // between DAC and AUX1
-static const uint16_t INPUT_BOUNDARY_2 = 495; // between AUX1 and AUX2
-static const uint16_t INPUT_BOUNDARY_3 = 733; // between AUX2 and PHONO
+static const uint16_t INPUT_BOUNDARY_1 = 266; // between DAC and AUX1 (based on measured 167/364)
+static const uint16_t INPUT_BOUNDARY_2 = 486; // between AUX1 and AUX2 (based on measured 364/608)
+static const uint16_t INPUT_BOUNDARY_3 = 724; // between AUX2 and PHONO (based on measured 608/839)
 
 // Schmitt hysteresis around each boundary to reduce chatter.
 static const uint8_t INPUT_HYST_ADC = 16;
@@ -180,9 +180,29 @@ static const char* inputShortName(InputSource input)
   }
 }
 
-static float adcToVoltage(uint16_t adcValue)
+static void formatTenthsDb(int16_t dbTenths, char* out, size_t outLen)
 {
-  return (static_cast<float>(adcValue) * 3.3f) / 1023.0f;
+  if (outLen < 2) {
+    return;
+  }
+
+  const char sign = (dbTenths < 0) ? '-' : '+';
+  int16_t absTenths = dbTenths < 0 ? static_cast<int16_t>(-dbTenths) : dbTenths;
+  const uint16_t whole = static_cast<uint16_t>(absTenths / 10);
+  const uint8_t frac = static_cast<uint8_t>(absTenths % 10);
+  snprintf(out, outLen, "%c%u.%u", sign, whole, frac);
+}
+
+static void formatAdcVoltage(uint16_t adcValue, char* out, size_t outLen)
+{
+  if (outLen < 2) {
+    return;
+  }
+
+  const uint32_t mv = (static_cast<uint32_t>(adcValue) * 3300UL + 511UL) / 1023UL;
+  const uint16_t whole = static_cast<uint16_t>(mv / 1000UL);
+  const uint16_t frac = static_cast<uint16_t>((mv % 1000UL) / 10UL);
+  snprintf(out, outLen, "%u.%02uV", whole, frac);
 }
 
 static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
@@ -404,13 +424,17 @@ static void updateDisplay()
              relayDac, relayAux1, relayAux2, relayPhono,
              digitalRead(RELAY_OUTPUT_PIN) == RELAY_ACTIVE_STATE ? 1 : 0);
   } else {
-    const float volV = adcToVoltage(g_lastVolAdc);
-    snprintf(line0, sizeof(line0), "VOL:%4u %1.2fV",
-             g_lastVolAdc,
-             static_cast<double>(volV));
+    char volText[8];
+    char dbText[8];
+    formatAdcVoltage(g_lastVolAdc, volText, sizeof(volText));
+    formatTenthsDb(static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5)), dbText, sizeof(dbText));
 
-    snprintf(line1, sizeof(line1), "DB:%5.1f C:%3u",
-             static_cast<double>(g_pgaDb),
+    snprintf(line0, sizeof(line0), "VOL:%4u %s",
+             g_lastVolAdc,
+             volText);
+
+    snprintf(line1, sizeof(line1), "DB:%6s C:%3u",
+             dbText,
              g_pgaCode);
   }
 
