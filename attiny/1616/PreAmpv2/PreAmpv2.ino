@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.5
+  Version: 0.3.6
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -44,7 +44,7 @@
 #endif
 
 #ifndef PREAMPV2_LCD_DEBUG
-#define PREAMPV2_LCD_DEBUG 1
+#define PREAMPV2_LCD_DEBUG 0
 #endif
 
 #if PREAMPV2_DEBUG

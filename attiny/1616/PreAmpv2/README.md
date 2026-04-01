@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.4
+Version: 0.3.6
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -50,8 +50,8 @@ Wire.pins(PIN_PA1, PIN_PA2);
 ```
 
 
-## LCD diagnostics mode (enabled)
-- `PREAMPV2_LCD_DEBUG` defaults to `1` in this version for hardware validation.
+## LCD diagnostics mode (optional, disabled by default)
+- `PREAMPV2_LCD_DEBUG` defaults to `0` in this version. Set it to `1` when you want hardware diagnostics on the LCD.
 - The LCD alternates once per second between two test pages:
   - **Page A (input/relay):** selected input (`S:`), decoded candidate (`C:`), raw input ADC (`Axxx`), and relay states (`R:1234 OUT:x`).
   - **Page B (volume):** raw volume ADC (`VOL:`), estimated input voltage (`x.xxV`), actual applied dB (`DB:`), and PGA code (`C:`).
@@ -74,6 +74,12 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - The LCD diagnostics no longer rely on `%f` formatting in `snprintf` for voltage/dB output.
 - Voltage is displayed from integer millivolt math, and dB is rendered from PGA code in fixed-point tenths.
 - This avoids float-format limitations that can show `?` on AVR builds without float `printf` support.
+
+## Default LCD display
+- With `PREAMPV2_LCD_DEBUG = 0`, the display shows:
+  - Top row: selected input (centered)
+  - Bottom row: volume in dB (centered)
+  - No additional labels/text
 
 ## Volume mapping strategy
 - Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
