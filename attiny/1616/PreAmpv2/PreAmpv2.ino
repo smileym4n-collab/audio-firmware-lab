@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.11
+  Version: 0.3.12
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -126,7 +126,7 @@ static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside
 static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
 static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
 static const uint16_t ADC_AT_MAX_THRESHOLD = 1022;     // Treat as top mechanical travel.
-static const bool MOTOR_VOLUME_UP_POLARITY_NORMAL = true; // Set false to invert motor direction mapping.
+static const bool MOTOR_VOLUME_UP_POLARITY_NORMAL = false; // Inverted for current hardware; set true if wiring/motor polarity is opposite.
 
 // Apple IR command map (confirmed codes).
 static const uint8_t IR_APPLE_ADDRESS = 0xAA;
@@ -184,6 +184,13 @@ static bool g_motorRunning = false;
 static uint32_t g_motorRunStartMs = 0;
 static uint32_t g_lastIrMotorCommandMs = 0;
 static uint32_t g_lastIrApplyMs = 0;
+
+enum MotorDirection : uint8_t {
+  MOTOR_DIR_STOP = 0,
+  MOTOR_DIR_VOLUME_UP,
+  MOTOR_DIR_VOLUME_DOWN
+};
+static MotorDirection g_motorDirection = MOTOR_DIR_STOP;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -249,6 +256,7 @@ static void motorStop()
   digitalWrite(MOTOR_1_PIN, LOW);
   digitalWrite(MOTOR_2_PIN, LOW);
   g_motorRunning = false;
+  g_motorDirection = MOTOR_DIR_STOP;
 }
 
 static void motorApplyDirection(bool in1High, bool in2High)
@@ -267,6 +275,7 @@ static void motorStartVolumeUp()
   } else {
     motorApplyDirection(false, true);
   }
+  g_motorDirection = MOTOR_DIR_VOLUME_UP;
 }
 
 static void motorStartVolumeDown()
@@ -276,6 +285,7 @@ static void motorStartVolumeDown()
   } else {
     motorApplyDirection(true, false);
   }
+  g_motorDirection = MOTOR_DIR_VOLUME_DOWN;
 }
 
 static void configureAnalogInputs()
@@ -474,13 +484,13 @@ static void serviceMotorControl(uint32_t nowMs)
 {
   const uint16_t currentAdc = g_lastVolAdc;
 
-  if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+  if ((currentAdc <= ADC_AT_MIN_THRESHOLD) && (g_motorDirection == MOTOR_DIR_VOLUME_DOWN)) {
     g_motorTargetAdc = 0;
     motorStop();
     return;
   }
 
-  if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+  if ((currentAdc >= ADC_AT_MAX_THRESHOLD) && (g_motorDirection == MOTOR_DIR_VOLUME_UP)) {
     g_motorTargetAdc = 1023;
     motorStop();
     return;
