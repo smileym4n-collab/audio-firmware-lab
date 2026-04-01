@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.7
+  Version: 0.3.8
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -166,6 +166,7 @@ static InputSource g_lastInputCandidate = INPUT_DAC;
 // Helpers
 // -----------------------------------------------------------------------------
 
+#if PREAMPV2_LCD_DEBUG
 static const char* inputShortName(InputSource input)
 {
   switch (input) {
@@ -176,6 +177,8 @@ static const char* inputShortName(InputSource input)
     default: return "?";
   }
 }
+
+#endif
 
 static void formatTenthsDb(int16_t dbTenths, char* out, size_t outLen)
 {
@@ -190,6 +193,7 @@ static void formatTenthsDb(int16_t dbTenths, char* out, size_t outLen)
   snprintf(out, outLen, "%c%u.%u", sign, whole, frac);
 }
 
+#if PREAMPV2_LCD_DEBUG
 static void formatAdcVoltage(uint16_t adcValue, char* out, size_t outLen)
 {
   if (outLen < 2) {
@@ -201,6 +205,8 @@ static void formatAdcVoltage(uint16_t adcValue, char* out, size_t outLen)
   const uint16_t frac = static_cast<uint16_t>((mv % 1000UL) / 10UL);
   snprintf(out, outLen, "%u.%02uV", whole, frac);
 }
+
+#endif
 
 static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
 {
@@ -448,15 +454,16 @@ static void updateDisplay()
   static int16_t lastDbTenthsShown = 32767;
 
   if (g_selectedInput != lastInputShown) {
-    char line0[LCD_COLS + 1];
-    const size_t inputLen = strlen(INPUT_NAMES[g_selectedInput]);
-    const int8_t inputPad = (LCD_COLS > inputLen) ? static_cast<int8_t>((LCD_COLS - inputLen) / 2) : 0;
-    snprintf(line0, sizeof(line0), "%*s%s", inputPad, "", INPUT_NAMES[g_selectedInput]);
+    const char* inputText = INPUT_NAMES[g_selectedInput];
+    const size_t inputLen = strlen(inputText);
+    const uint8_t inputPad = (LCD_COLS > inputLen) ? static_cast<uint8_t>((LCD_COLS - inputLen) / 2) : 0;
+
     g_lcd.setCursor(0, 0);
-    g_lcd.print(line0);
-    for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
+    for (uint8_t i = 0; i < LCD_COLS; ++i) {
       g_lcd.print(' ');
     }
+    g_lcd.setCursor(inputPad, 0);
+    g_lcd.print(inputText);
     lastInputShown = g_selectedInput;
   }
 
@@ -467,16 +474,15 @@ static void updateDisplay()
 
     char volumeText[12];
     snprintf(volumeText, sizeof(volumeText), "%s dB", dbText);
-
-    char line1[LCD_COLS + 1];
     const size_t volumeLen = strlen(volumeText);
-    const int8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<int8_t>((LCD_COLS - volumeLen) / 2) : 0;
-    snprintf(line1, sizeof(line1), "%*s%s", volumePad, "", volumeText);
+    const uint8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<uint8_t>((LCD_COLS - volumeLen) / 2) : 0;
+
     g_lcd.setCursor(0, 1);
-    g_lcd.print(line1);
-    for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
+    for (uint8_t i = 0; i < LCD_COLS; ++i) {
       g_lcd.print(' ');
     }
+    g_lcd.setCursor(volumePad, 1);
+    g_lcd.print(volumeText);
     lastDbTenthsShown = dbTenths;
   }
 #endif

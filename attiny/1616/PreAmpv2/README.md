@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.7
+Version: 0.3.8
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -59,6 +59,7 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - Set `PREAMPV2_LCD_DEBUG` to `0` to return to normal two-line user display mode.
 
 - Normal (non-debug) LCD dB rendering avoids float `snprintf` and uses fixed-point formatting for reliable AVR display updates.
+- Normal display centering now writes directly to LCD (no formatted width specifiers), improving compatibility on constrained AVR `printf` builds.
 
 ## Latest hardware calibration
 - Input ladder changeover thresholds were retuned from real measurements:
