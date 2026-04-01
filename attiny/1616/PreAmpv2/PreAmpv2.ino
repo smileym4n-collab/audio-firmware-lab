@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.2
+  Version: 0.3.3
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -44,7 +44,7 @@
 #endif
 
 #ifndef PREAMPV2_LCD_DEBUG
-#define PREAMPV2_LCD_DEBUG 0
+#define PREAMPV2_LCD_DEBUG 1
 #endif
 
 #if PREAMPV2_DEBUG
@@ -163,10 +163,28 @@ static uint32_t g_lastDebugMs = 0;
 
 static uint16_t g_lastVolAdc = 0;
 static uint16_t g_lastInputAdc = 0;
+static InputSource g_lastInputCandidate = INPUT_DAC;
 
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+static const char* inputShortName(InputSource input)
+{
+  switch (input) {
+    case INPUT_DAC: return "DAC";
+    case INPUT_AUX1: return "A1";
+    case INPUT_AUX2: return "A2";
+    case INPUT_PHONO: return "PH";
+    default: return "?";
+  }
+}
+
+static float adcToVoltage(uint16_t adcValue)
+{
+  return (static_cast<float>(adcValue) * 3.3f) / 1023.0f;
+}
+
 static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
 {
   analogRead(pin); // throwaway sample after mux selection
@@ -346,40 +364,62 @@ static void updateDisplay()
   }
 
 #if PREAMPV2_LCD_DEBUG
-  // Temporary LCD debug mode for boards without UART access.
-  // Line 1: selected input + raw input ladder ADC.
-  // Line 2: raw volume ADC + PGA code being sent.
+  // LCD diagnostics mode for relay + ADC validation on hardware.
+  // Alternates pages every ~1 second:
+  //   Page A: input decode state + relay output states
+  //   Page B: volume ADC count + estimated voltage + PGA target
   static uint16_t lastInputAdcShown = 65535;
   static uint16_t lastVolAdcShown = 65535;
   static InputSource lastInputShown = INPUT_COUNT;
+  static InputSource lastCandidateShown = INPUT_COUNT;
   static uint8_t lastCodeShown = 255;
+  static bool lastPageA = false;
+
+  const bool showPageA = ((millis() / 1000UL) % 2UL) == 0UL;
 
   if ((g_selectedInput == lastInputShown) &&
+      (g_lastInputCandidate == lastCandidateShown) &&
       (g_lastInputAdc == lastInputAdcShown) &&
       (g_lastVolAdc == lastVolAdcShown) &&
-      (g_pgaCode == lastCodeShown)) {
+      (g_pgaCode == lastCodeShown) &&
+      (showPageA == lastPageA)) {
     return;
   }
 
-  const char* inputShort = "DAC";
-  if (g_selectedInput == INPUT_AUX1) {
-    inputShort = "AU1";
-  } else if (g_selectedInput == INPUT_AUX2) {
-    inputShort = "AU2";
-  } else if (g_selectedInput == INPUT_PHONO) {
-    inputShort = "PHO";
+  char line0[LCD_COLS + 1];
+  char line1[LCD_COLS + 1];
+
+  if (showPageA) {
+    snprintf(line0, sizeof(line0), "S:%-3s C:%-2s A%3u",
+             inputShortName(g_selectedInput),
+             inputShortName(g_lastInputCandidate),
+             g_lastInputAdc);
+
+    const uint8_t relayDac = digitalRead(RELAY_DAC_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayAux1 = digitalRead(RELAY_AUX1_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayAux2 = digitalRead(RELAY_AUX2_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayPhono = digitalRead(RELAY_PHONO_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+
+    snprintf(line1, sizeof(line1), "R:%u%u%u%u OUT:%u",
+             relayDac, relayAux1, relayAux2, relayPhono,
+             digitalRead(RELAY_OUTPUT_PIN) == RELAY_ACTIVE_STATE ? 1 : 0);
+  } else {
+    const float volV = adcToVoltage(g_lastVolAdc);
+    snprintf(line0, sizeof(line0), "VOL:%4u %1.2fV",
+             g_lastVolAdc,
+             static_cast<double>(volV));
+
+    snprintf(line1, sizeof(line1), "DB:%5.1f C:%3u",
+             static_cast<double>(g_pgaDb),
+             g_pgaCode);
   }
 
-  char line0[LCD_COLS + 1];
-  snprintf(line0, sizeof(line0), "IN:%s A:%3u", inputShort, g_lastInputAdc);
   g_lcd.setCursor(0, 0);
   g_lcd.print(line0);
   for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
     g_lcd.print(' ');
   }
 
-  char line1[LCD_COLS + 1];
-  snprintf(line1, sizeof(line1), "V:%3u C:%3u", g_lastVolAdc, g_pgaCode);
   g_lcd.setCursor(0, 1);
   g_lcd.print(line1);
   for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
@@ -387,9 +427,11 @@ static void updateDisplay()
   }
 
   lastInputShown = g_selectedInput;
+  lastCandidateShown = g_lastInputCandidate;
   lastInputAdcShown = g_lastInputAdc;
   lastVolAdcShown = g_lastVolAdc;
   lastCodeShown = g_pgaCode;
+  lastPageA = showPageA;
 #else
   static InputSource lastInputShown = INPUT_COUNT;
   static int16_t lastDbTenthsShown = 32767;
@@ -513,6 +555,7 @@ void loop()
     const uint16_t inputAdc = readAdcAveraged(INPUT_ADC_PIN, 8);
     g_lastInputAdc = inputAdc;
     const InputSource candidate = readSelectedInput(inputAdc);
+    g_lastInputCandidate = candidate;
 
     if (candidate == g_pendingInput) {
       if (g_pendingInputStableCount < 255) {

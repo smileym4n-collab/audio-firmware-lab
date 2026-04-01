@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.2
+Version: 0.3.3
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -48,6 +48,15 @@ I2C pins are explicitly forced in code with:
 ```cpp
 Wire.pins(PIN_PA1, PIN_PA2);
 ```
+
+
+## LCD diagnostics mode (enabled)
+- `PREAMPV2_LCD_DEBUG` defaults to `1` in this version for hardware validation.
+- The LCD alternates once per second between two test pages:
+  - **Page A (input/relay):** selected input (`S:`), decoded candidate (`C:`), raw input ADC (`Axxx`), and relay states (`R:1234 OUT:x`).
+  - **Page B (volume):** raw volume ADC (`VOL:`), estimated input voltage (`x.xxV`), actual applied dB (`DB:`), and PGA code (`C:`).
+- Relay state legend for `R:1234` is: DAC, AUX1, AUX2, PHONO (`1` = active output state, `0` = inactive output state).
+- Set `PREAMPV2_LCD_DEBUG` to `0` to return to normal two-line user display mode.
 
 ## Volume mapping strategy
 - Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
