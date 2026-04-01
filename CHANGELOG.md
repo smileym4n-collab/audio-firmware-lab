@@ -5,6 +5,8 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Fixed
+- `attiny/1616/PreAmpv2` fixes blank LCD after init by removing float `%f` formatting from the normal (non-debug) display path and using fixed-point dB text
+- `attiny/1616/PreAmpv2` version bumped to `0.3.7`
 - `attiny/1616/PreAmpv2` adds LCD bring-up diagnostics (I2C route scan + detected address/count + LCD init status) to help debug blank-screen issues without UART
 - `attiny/1616/PreAmpv2` now scans both megaTinyCore TWI routes at startup (when supported) and selects the route where an I2C device is detected
 - `attiny/1616/PreAmpv2` version bumped to `0.3.0`

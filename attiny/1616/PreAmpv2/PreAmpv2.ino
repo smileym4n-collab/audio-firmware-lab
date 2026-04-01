@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.6
+  Version: 0.3.7
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -460,10 +460,14 @@ static void updateDisplay()
     lastInputShown = g_selectedInput;
   }
 
-  const int16_t dbTenths = static_cast<int16_t>(g_pgaDb * 10.0f);
+  const int16_t dbTenths = static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5));
   if (dbTenths != lastDbTenthsShown) {
+    char dbText[8];
+    formatTenthsDb(dbTenths, dbText, sizeof(dbText));
+
     char volumeText[12];
-    snprintf(volumeText, sizeof(volumeText), "%.1f dB", static_cast<double>(g_pgaDb));
+    snprintf(volumeText, sizeof(volumeText), "%s dB", dbText);
+
     char line1[LCD_COLS + 1];
     const size_t volumeLen = strlen(volumeText);
     const int8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<int8_t>((LCD_COLS - volumeLen) / 2) : 0;
