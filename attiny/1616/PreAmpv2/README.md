@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.8
+Version: 0.3.9
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -15,11 +15,11 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - `PC1`  - Relay 3 (`AUX 2`)
 - `PC2`  - Relay 4 (`PHONO`)
 - `PC3`  - Relay 5 (`OUTPUT`)
-- `PB5`  - Motor 1 (placeholder only)
-- `PB4`  - Motor 2 (placeholder only)
+- `PB5`  - Motor drive IN1 (clockwise for volume up)
+- `PB4`  - Motor drive IN2 (anti-clockwise for volume down)
 - `PA1`  - I2C SDA
 - `PA2`  - I2C SCL
-- `PA6`  - IR input (placeholder only)
+- `PA6`  - TSOP2438 IR input
 - `PA4`  - PGA2310 MUTE
 - `PA5`  - PGA2310 SDI
 - `PB3`  - PGA2310 SCLK
@@ -39,6 +39,18 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - PGA2310 stereo volume control from `PB1` potentiometer ADC.
 - Volume command and display are capped at `+10.0 dB`.
 - 16x2 LCD displays active input and actual dB sent to PGA.
+- Apple IR volume control on `PA6`:
+  - Protocol: `Apple`
+  - Address: `0xAA`
+  - Volume up command: `0x0B` (raw reference `0xAA0B87EE`)
+  - Volume down command: `0x0D` (raw reference `0xAA0D87EE`)
+  - Short press steps volume once.
+  - Held button uses repeat frames with controlled stepping rate.
+  - Unrelated commands are ignored.
+- Motorized potentiometer drive on `PB5`/`PB4`:
+  - Volume up drives clockwise (`PB5=HIGH`, `PB4=LOW`)
+  - Volume down drives anti-clockwise (`PB5=LOW`, `PB4=HIGH`)
+  - Motor stop is enforced by deadband target, runtime timeout, and ADC end-stop checks.
 
 ## LCD library choice
 This sketch uses `LiquidCrystal_I2C`.
@@ -87,10 +99,6 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
 - Result is quantized to PGA2310 half-dB steps (device-native coding).
 - Firmware displays the **actual quantized dB value** sent to the PGA2310.
-
-## Not implemented yet (placeholders only)
-- IR control logic on `PA6`
-- Motorized potentiometer control behavior on `PB5`/`PB4`
 
 ## Arduino IDE dependencies
 Install these libraries:

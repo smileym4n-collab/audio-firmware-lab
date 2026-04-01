@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.8
+  Version: 0.3.13
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -8,9 +8,9 @@
   - 16x2 I2C LCD status output (input + dB)
   - Delayed output relay enable (1 second after startup)
 
-  Placeholders only (not implemented yet):
-  - IR control on PA6
-  - Motorized potentiometer drive on PB5/PB4
+  Added in this version:
+  - Apple-protocol IR volume control on PA6 (address 0xAA, commands 0x0B/0x0D)
+  - Motorized potentiometer drive on PB5/PB4 for IR volume up/down
 
   Target:
   - ATtiny1616, megaTinyCore, Arduino IDE
@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <IRremote.hpp>
 #include <stdio.h>
 #include <string.h>
 
@@ -66,13 +67,13 @@ static const uint8_t RELAY_AUX2_PIN   = PIN_PC1; // Relay 3 (AUX 2)
 static const uint8_t RELAY_PHONO_PIN  = PIN_PC2; // Relay 4 (PHONO)
 static const uint8_t RELAY_OUTPUT_PIN = PIN_PC3; // Relay 5 (OUTPUT)
 
-static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor 1 placeholder (not used yet)
-static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor 2 placeholder (not used yet)
+static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor driver IN1
+static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor driver IN2
 
 static const uint8_t I2C_SDA_PIN      = PIN_PA1; // SDA
 static const uint8_t I2C_SCL_PIN      = PIN_PA2; // SCL
 
-static const uint8_t IR_PIN           = PIN_PA6; // IR placeholder (not used yet)
+static const uint8_t IR_PIN           = PIN_PA6; // TSOP2438 IR demodulated input
 
 static const uint8_t PGA_MUTE_PIN     = PIN_PA4; // PGA2310 MUTE (assumed active LOW)
 static const uint8_t PGA_SDI_PIN      = PIN_PA5; // PGA2310 SDI
@@ -119,6 +120,23 @@ static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
 static const uint16_t DISPLAY_PERIOD_MS = 120;
 static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 
+// Motorized potentiometer control limits (PB5/PB4 through motor driver).
+static const uint16_t MOTOR_STEP_ADC = 8;              // One short IR press target increment.
+static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside this error band.
+static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
+static const uint16_t MOTOR_CONTROL_SAMPLE_MS = 8;     // Faster motor feedback sampling for smoother motion.
+static const uint8_t MOTOR_CONTROL_ADC_SAMPLES = 2;    // Light averaging for motor-control responsiveness.
+static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
+static const uint16_t ADC_AT_MAX_THRESHOLD = 1022;     // Treat as top mechanical travel.
+static const bool MOTOR_VOLUME_UP_POLARITY_NORMAL = false; // Inverted for current hardware; set true if wiring/motor polarity is opposite.
+
+// Apple IR command map (confirmed codes).
+static const uint8_t IR_APPLE_ADDRESS = 0xAA;
+static const uint8_t IR_APPLE_CMD_VOL_UP = 0x0B;
+static const uint8_t IR_APPLE_CMD_VOL_DOWN = 0x0D;
+static const uint16_t IR_REPEAT_MIN_INTERVAL_MS = 90;  // Controlled repeat speed while holding.
+static const uint16_t IR_HOLD_STOP_TIMEOUT_MS = 220;   // Stop hold motion when repeat frames stop.
+
 // ADC assumptions (megaTinyCore default analogRead behavior):
 // - expected resolution is 10-bit (0..1023)
 // - default reference is VDD unless explicitly changed by firmware/board config
@@ -161,6 +179,28 @@ static uint32_t g_lastDebugMs = 0;
 static uint16_t g_lastVolAdc = 0;
 static uint16_t g_lastInputAdc = 0;
 static InputSource g_lastInputCandidate = INPUT_DAC;
+
+// Motor target state derived from IR commands.
+static uint16_t g_motorTargetAdc = 0;
+static bool g_motorRunning = false;
+static uint32_t g_motorRunStartMs = 0;
+static uint32_t g_lastIrMotorCommandMs = 0;
+static uint32_t g_lastIrApplyMs = 0;
+static uint32_t g_lastMotorSenseMs = 0;
+
+enum MotorDirection : uint8_t {
+  MOTOR_DIR_STOP = 0,
+  MOTOR_DIR_VOLUME_UP,
+  MOTOR_DIR_VOLUME_DOWN
+};
+static MotorDirection g_motorDirection = MOTOR_DIR_STOP;
+
+enum MotorControlMode : uint8_t {
+  MOTOR_MODE_IDLE = 0,
+  MOTOR_MODE_STEP,
+  MOTOR_MODE_HOLD
+};
+static MotorControlMode g_motorMode = MOTOR_MODE_IDLE;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -219,6 +259,44 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
   }
 
   return static_cast<uint16_t>(sum / samples);
+}
+
+static void motorStop()
+{
+  digitalWrite(MOTOR_1_PIN, LOW);
+  digitalWrite(MOTOR_2_PIN, LOW);
+  g_motorRunning = false;
+  g_motorDirection = MOTOR_DIR_STOP;
+  g_motorMode = MOTOR_MODE_IDLE;
+}
+
+static void motorApplyDirection(bool in1High, bool in2High)
+{
+  digitalWrite(MOTOR_1_PIN, in1High ? HIGH : LOW);
+  digitalWrite(MOTOR_2_PIN, in2High ? HIGH : LOW);
+  g_motorRunning = true;
+}
+
+static void motorStartVolumeUp()
+{
+  // Logical volume direction abstraction:
+  // flip MOTOR_VOLUME_UP_POLARITY_NORMAL if installed motor polarity is reversed.
+  if (MOTOR_VOLUME_UP_POLARITY_NORMAL) {
+    motorApplyDirection(true, false);
+  } else {
+    motorApplyDirection(false, true);
+  }
+  g_motorDirection = MOTOR_DIR_VOLUME_UP;
+}
+
+static void motorStartVolumeDown()
+{
+  if (MOTOR_VOLUME_UP_POLARITY_NORMAL) {
+    motorApplyDirection(false, true);
+  } else {
+    motorApplyDirection(true, false);
+  }
+  g_motorDirection = MOTOR_DIR_VOLUME_DOWN;
 }
 
 static void configureAnalogInputs()
@@ -343,6 +421,157 @@ static void setPgaVolumeDb(float requestedDb)
   pgaWriteStereo(newCode);
   g_pgaCode = newCode;
   g_pgaDb = pgaCodeToDb(newCode); // show exact value sent
+}
+
+static void applyIrVolumeCommand(bool isVolUp, bool isRepeatFrame)
+{
+  const uint32_t nowMs = millis();
+  const bool wasRunning = g_motorRunning;
+  if ((nowMs - g_lastIrApplyMs) < IR_REPEAT_MIN_INTERVAL_MS) {
+    return; // Controlled repeat speed while button is held.
+  }
+  g_lastIrApplyMs = nowMs;
+
+  const uint16_t currentAdc = g_lastVolAdc;
+  const MotorDirection requestedDirection = isVolUp ? MOTOR_DIR_VOLUME_UP : MOTOR_DIR_VOLUME_DOWN;
+
+  if (isRepeatFrame) {
+    // Hold mode: repeats are treated as keep-alive for continuous movement.
+    g_motorMode = MOTOR_MODE_HOLD;
+    if (isVolUp) {
+      if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+        g_motorTargetAdc = 1023;
+        motorStop();
+        return;
+      }
+      g_motorTargetAdc = 1023;
+      if (g_motorDirection != requestedDirection) {
+        motorStartVolumeUp();
+      } else if (!g_motorRunning) {
+        motorStartVolumeUp();
+      }
+    } else {
+      if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+        g_motorTargetAdc = 0;
+        motorStop();
+        return;
+      }
+      g_motorTargetAdc = 0;
+      if (g_motorDirection != requestedDirection) {
+        motorStartVolumeDown();
+      } else if (!g_motorRunning) {
+        motorStartVolumeDown();
+      }
+    }
+
+    if (!wasRunning) {
+      g_motorRunStartMs = nowMs;
+    }
+    g_lastIrMotorCommandMs = nowMs;
+    return;
+  }
+
+  // Short-press mode: one small controlled step from current pot position.
+  g_motorMode = MOTOR_MODE_STEP;
+  if (isVolUp) {
+    if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+      g_motorTargetAdc = 1023;
+      motorStop();
+      return;
+    }
+    // Target step is always based on current measured pot position.
+    g_motorTargetAdc = (currentAdc > (1023 - MOTOR_STEP_ADC)) ? 1023 : (currentAdc + MOTOR_STEP_ADC);
+    motorStartVolumeUp();
+  } else {
+    if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+      g_motorTargetAdc = 0;
+      motorStop();
+      return;
+    }
+    // Target step is always based on current measured pot position.
+    g_motorTargetAdc = (currentAdc > MOTOR_STEP_ADC) ? (currentAdc - MOTOR_STEP_ADC) : 0;
+    motorStartVolumeDown();
+  }
+
+  if (!wasRunning) {
+    g_motorRunStartMs = nowMs;
+  }
+  g_lastIrMotorCommandMs = nowMs;
+}
+
+static void handleAppleIrCommand(uint16_t decodedAddress, uint8_t decodedCommand)
+{
+  // We match by decoded protocol fields (address/command), not raw timing bits.
+  if ((decodedAddress & 0x00FFu) != IR_APPLE_ADDRESS) {
+    return;
+  }
+
+  const bool isRepeatFrame = (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) != 0;
+  if (decodedCommand == IR_APPLE_CMD_VOL_UP) {
+    applyIrVolumeCommand(true, isRepeatFrame);
+  } else if (decodedCommand == IR_APPLE_CMD_VOL_DOWN) {
+    applyIrVolumeCommand(false, isRepeatFrame);
+  }
+}
+
+static void serviceIrReceiver()
+{
+  // Use library decoder instead of loop-time edge timing:
+  // IRremote captures pulses with interrupt/timer-backed receive logic,
+  // which is robust while loop() performs ADC, LCD I2C, and PGA writes.
+  if (!IrReceiver.decode()) {
+    return;
+  }
+
+  const auto& irData = IrReceiver.decodedIRData;
+  const bool isNecFamily = (irData.protocol == NEC) || (irData.protocol == APPLE);
+  if (isNecFamily) {
+    handleAppleIrCommand(irData.address, irData.command);
+  }
+  IrReceiver.resume();
+}
+
+static void serviceMotorControl(uint32_t nowMs)
+{
+  uint16_t currentAdc = g_lastVolAdc;
+  if ((nowMs - g_lastMotorSenseMs) >= MOTOR_CONTROL_SAMPLE_MS) {
+    g_lastMotorSenseMs = nowMs;
+    currentAdc = readAdcAveraged(VOL_ADC_PIN, MOTOR_CONTROL_ADC_SAMPLES);
+  }
+
+  if ((currentAdc <= ADC_AT_MIN_THRESHOLD) && (g_motorDirection == MOTOR_DIR_VOLUME_DOWN)) {
+    g_motorTargetAdc = 0;
+    motorStop();
+    return;
+  }
+
+  if ((currentAdc >= ADC_AT_MAX_THRESHOLD) && (g_motorDirection == MOTOR_DIR_VOLUME_UP)) {
+    g_motorTargetAdc = 1023;
+    motorStop();
+    return;
+  }
+
+  if (!g_motorRunning) {
+    return;
+  }
+
+  if ((nowMs - g_motorRunStartMs) >= MOTOR_MAX_RUN_MS) {
+    motorStop();
+    return;
+  }
+
+  // Keep motor moving smoothly while repeat frames continue;
+  // stop shortly after repeats stop (button released or IR lost).
+  if ((nowMs - g_lastIrMotorCommandMs) > IR_HOLD_STOP_TIMEOUT_MS) {
+    motorStop();
+    return;
+  }
+
+  if (g_motorMode == MOTOR_MODE_STEP &&
+      currentAdc + MOTOR_DEADBAND_ADC >= g_motorTargetAdc &&
+      currentAdc <= g_motorTargetAdc + MOTOR_DEADBAND_ADC) {
+    motorStop();
+  }
 }
 
 static InputSource readSelectedInput(uint16_t adcValue)
@@ -526,8 +755,8 @@ static void initializeGpioSafe()
   digitalWrite(RELAY_PHONO_PIN, RELAY_INACTIVE_STATE);
   digitalWrite(RELAY_OUTPUT_PIN, RELAY_INACTIVE_STATE); // output relay OFF during delay
 
-  digitalWrite(MOTOR_1_PIN, LOW); // placeholder-safe
-  digitalWrite(MOTOR_2_PIN, LOW); // placeholder-safe
+  digitalWrite(MOTOR_1_PIN, LOW); // motor off at startup
+  digitalWrite(MOTOR_2_PIN, LOW); // motor off at startup
 
   digitalWrite(PGA_CS_PIN, HIGH);
   digitalWrite(PGA_SCLK_PIN, LOW);
@@ -556,11 +785,18 @@ void setup()
   setPgaVolumeDb(-80.0f);
 
   g_bootMs = millis();
+  g_lastVolAdc = readAdcAveraged(VOL_ADC_PIN, 8);
+  g_motorTargetAdc = g_lastVolAdc;
+
+  // Library-based IR receiver initialization.
+  // This replaces loop-time edge polling to improve decode reliability.
+  IrReceiver.begin(IR_PIN, DISABLE_LED_FEEDBACK);
 }
 
 void loop()
 {
   const uint32_t nowMs = millis();
+  serviceIrReceiver();
 
   // Delayed output relay turn-on.
   if (!g_outputRelayEnabled && (nowMs - g_bootMs >= OUTPUT_RELAY_DELAY_MS)) {
@@ -604,6 +840,8 @@ void loop()
     setPgaVolumeDb(requestedDb);
   }
 
+  serviceMotorControl(nowMs);
+
   // LCD update task.
   if (nowMs - g_lastDisplayMs >= DISPLAY_PERIOD_MS) {
     g_lastDisplayMs = nowMs;
@@ -624,6 +862,4 @@ void loop()
     DBG_PRINTLN(g_pgaCode);
   }
 
-  // Placeholder for future IR task (PA6).
-  // Placeholder for future motorized potentiometer task (PB5/PB4).
 }
