@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.10
+  Version: 0.3.11
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <IRremote.hpp>
 #include <stdio.h>
 #include <string.h>
 
@@ -182,16 +183,6 @@ static uint16_t g_motorTargetAdc = 0;
 static bool g_motorRunning = false;
 static uint32_t g_motorRunStartMs = 0;
 static uint32_t g_lastIrMotorCommandMs = 0;
-
-// IR decode state (Apple protocol uses NEC-like framing).
-static bool g_irPrevLevelHigh = true;
-static uint32_t g_irLastEdgeUs = 0;
-static uint16_t g_irLastMarkUs = 0;
-static bool g_irFrameActive = false;
-static uint8_t g_irBitIndex = 0;
-static uint32_t g_irRawData = 0;
-static uint8_t g_irLastAppleCommand = 0;
-static bool g_irHasLastAppleCommand = false;
 static uint32_t g_lastIrApplyMs = 0;
 
 // -----------------------------------------------------------------------------
@@ -411,29 +402,6 @@ static void setPgaVolumeDb(float requestedDb)
   g_pgaDb = pgaCodeToDb(newCode); // show exact value sent
 }
 
-static bool isWithin(uint16_t value, uint16_t target, uint16_t tolerance)
-{
-  return (value >= (target > tolerance ? (target - tolerance) : 0)) &&
-         (value <= (target + tolerance));
-}
-
-static bool decodeAppleFrame(uint32_t rawData, uint8_t* outAddress, uint8_t* outCommand)
-{
-  // Observed Apple frame layout for this remote:
-  // [31:24] address, [23:16] command, [15:0] fixed trailer 0x87EE.
-  const uint8_t address = static_cast<uint8_t>((rawData >> 24) & 0xFFu);
-  const uint8_t command = static_cast<uint8_t>((rawData >> 16) & 0xFFu);
-  const uint16_t trailer = static_cast<uint16_t>(rawData & 0xFFFFu);
-
-  if (trailer != 0x87EEu) {
-    return false; // Not an Apple frame for this remote format.
-  }
-
-  *outAddress = address;
-  *outCommand = command;
-  return true;
-}
-
 static void applyIrVolumeCommand(bool isVolUp)
 {
   const uint32_t nowMs = millis();
@@ -471,92 +439,35 @@ static void applyIrVolumeCommand(bool isVolUp)
   g_lastIrMotorCommandMs = nowMs;
 }
 
-static void handleAppleIrFrame(uint32_t rawData, bool isRepeat)
+static void handleAppleIrCommand(uint16_t decodedAddress, uint8_t decodedCommand)
 {
-  uint8_t address = 0;
-  uint8_t command = 0;
-
-  if (isRepeat) {
-    if (!g_irHasLastAppleCommand) {
-      return;
-    }
-    command = g_irLastAppleCommand;
-    address = IR_APPLE_ADDRESS;
-  } else {
-    if (!decodeAppleFrame(rawData, &address, &command)) {
-      return;
-    }
-    if (address != IR_APPLE_ADDRESS) {
-      return;
-    }
-    g_irLastAppleCommand = command;
-    g_irHasLastAppleCommand = true;
+  // We match by decoded protocol fields (address/command), not raw timing bits.
+  if ((decodedAddress & 0x00FFu) != IR_APPLE_ADDRESS) {
+    return;
   }
 
-  if (command == IR_APPLE_CMD_VOL_UP) {
+  if (decodedCommand == IR_APPLE_CMD_VOL_UP) {
     applyIrVolumeCommand(true);
-  } else if (command == IR_APPLE_CMD_VOL_DOWN) {
+  } else if (decodedCommand == IR_APPLE_CMD_VOL_DOWN) {
     applyIrVolumeCommand(false);
   }
 }
 
-static void processIrEdge(uint32_t nowUs, bool levelHigh)
+static void serviceIrReceiver()
 {
-  const uint32_t pulseWidth = nowUs - g_irLastEdgeUs;
-  g_irLastEdgeUs = nowUs;
-
-  if (!levelHigh) {
-    const uint16_t spaceUs = static_cast<uint16_t>(pulseWidth);
-
-    if (isWithin(g_irLastMarkUs, 9000, 1800) && isWithin(spaceUs, 4500, 900)) {
-      g_irFrameActive = true;
-      g_irBitIndex = 0;
-      g_irRawData = 0;
-      return;
-    }
-
-    if (isWithin(g_irLastMarkUs, 9000, 1800) && isWithin(spaceUs, 2250, 500)) {
-      handleAppleIrFrame(g_irRawData, true);
-      g_irFrameActive = false;
-      return;
-    }
-
-    if (!g_irFrameActive) {
-      return;
-    }
-
-    if (!isWithin(g_irLastMarkUs, 560, 250)) {
-      g_irFrameActive = false;
-      return;
-    }
-
-    const uint8_t bitValue = (spaceUs > 1000) ? 1u : 0u;
-    g_irRawData |= (static_cast<uint32_t>(bitValue) << g_irBitIndex);
-    ++g_irBitIndex;
-
-    if (g_irBitIndex >= 32u) {
-      handleAppleIrFrame(g_irRawData, false);
-      g_irFrameActive = false;
-    }
+  // Use library decoder instead of loop-time edge timing:
+  // IRremote captures pulses with interrupt/timer-backed receive logic,
+  // which is robust while loop() performs ADC, LCD I2C, and PGA writes.
+  if (!IrReceiver.decode()) {
     return;
   }
 
-  g_irLastMarkUs = static_cast<uint16_t>(pulseWidth);
-}
-
-static void serviceIrReceiver()
-{
-  const uint32_t nowUs = micros();
-  const bool levelHigh = (digitalRead(IR_PIN) == HIGH);
-
-  if (levelHigh != g_irPrevLevelHigh) {
-    processIrEdge(nowUs, levelHigh);
-    g_irPrevLevelHigh = levelHigh;
+  const auto& irData = IrReceiver.decodedIRData;
+  const bool isNecFamily = (irData.protocol == NEC) || (irData.protocol == APPLE);
+  if (isNecFamily) {
+    handleAppleIrCommand(irData.address, irData.command);
   }
-
-  if ((nowUs - g_irLastEdgeUs) > 20000u) {
-    g_irFrameActive = false;
-  }
+  IrReceiver.resume();
 }
 
 static void serviceMotorControl(uint32_t nowMs)
@@ -810,8 +721,10 @@ void setup()
   g_bootMs = millis();
   g_lastVolAdc = readAdcAveraged(VOL_ADC_PIN, 8);
   g_motorTargetAdc = g_lastVolAdc;
-  g_irPrevLevelHigh = (digitalRead(IR_PIN) == HIGH);
-  g_irLastEdgeUs = micros();
+
+  // Library-based IR receiver initialization.
+  // This replaces loop-time edge polling to improve decode reliability.
+  IrReceiver.begin(IR_PIN, DISABLE_LED_FEEDBACK);
 }
 
 void loop()
