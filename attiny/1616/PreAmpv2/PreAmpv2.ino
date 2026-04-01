@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.9
+  Version: 0.3.10
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -66,8 +66,8 @@ static const uint8_t RELAY_AUX2_PIN   = PIN_PC1; // Relay 3 (AUX 2)
 static const uint8_t RELAY_PHONO_PIN  = PIN_PC2; // Relay 4 (PHONO)
 static const uint8_t RELAY_OUTPUT_PIN = PIN_PC3; // Relay 5 (OUTPUT)
 
-static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor drive IN1 (clockwise for volume up)
-static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor drive IN2 (anti-clockwise for volume down)
+static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor driver IN1
+static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor driver IN2
 
 static const uint8_t I2C_SDA_PIN      = PIN_PA1; // SDA
 static const uint8_t I2C_SCL_PIN      = PIN_PA2; // SCL
@@ -123,15 +123,16 @@ static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 static const uint16_t MOTOR_STEP_ADC = 8;              // One short IR press target increment.
 static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside this error band.
 static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
-static const uint16_t MOTOR_COMMAND_PULSE_MS = 85;     // Motor run pulse triggered by each IR command.
 static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
 static const uint16_t ADC_AT_MAX_THRESHOLD = 1022;     // Treat as top mechanical travel.
+static const bool MOTOR_VOLUME_UP_POLARITY_NORMAL = true; // Set false to invert motor direction mapping.
 
 // Apple IR command map (confirmed codes).
 static const uint8_t IR_APPLE_ADDRESS = 0xAA;
 static const uint8_t IR_APPLE_CMD_VOL_UP = 0x0B;
 static const uint8_t IR_APPLE_CMD_VOL_DOWN = 0x0D;
 static const uint16_t IR_REPEAT_MIN_INTERVAL_MS = 90;  // Controlled repeat speed while holding.
+static const uint16_t IR_HOLD_STOP_TIMEOUT_MS = 220;   // Stop hold motion when repeat frames stop.
 
 // ADC assumptions (megaTinyCore default analogRead behavior):
 // - expected resolution is 10-bit (0..1023)
@@ -180,7 +181,7 @@ static InputSource g_lastInputCandidate = INPUT_DAC;
 static uint16_t g_motorTargetAdc = 0;
 static bool g_motorRunning = false;
 static uint32_t g_motorRunStartMs = 0;
-static uint32_t g_motorRunUntilMs = 0;
+static uint32_t g_lastIrMotorCommandMs = 0;
 
 // IR decode state (Apple protocol uses NEC-like framing).
 static bool g_irPrevLevelHigh = true;
@@ -259,18 +260,31 @@ static void motorStop()
   g_motorRunning = false;
 }
 
-static void motorRotateClockwise()
+static void motorApplyDirection(bool in1High, bool in2High)
 {
-  digitalWrite(MOTOR_1_PIN, HIGH);
-  digitalWrite(MOTOR_2_PIN, LOW);
+  digitalWrite(MOTOR_1_PIN, in1High ? HIGH : LOW);
+  digitalWrite(MOTOR_2_PIN, in2High ? HIGH : LOW);
   g_motorRunning = true;
 }
 
-static void motorRotateAntiClockwise()
+static void motorStartVolumeUp()
 {
-  digitalWrite(MOTOR_1_PIN, LOW);
-  digitalWrite(MOTOR_2_PIN, HIGH);
-  g_motorRunning = true;
+  // Logical volume direction abstraction:
+  // flip MOTOR_VOLUME_UP_POLARITY_NORMAL if installed motor polarity is reversed.
+  if (MOTOR_VOLUME_UP_POLARITY_NORMAL) {
+    motorApplyDirection(true, false);
+  } else {
+    motorApplyDirection(false, true);
+  }
+}
+
+static void motorStartVolumeDown()
+{
+  if (MOTOR_VOLUME_UP_POLARITY_NORMAL) {
+    motorApplyDirection(false, true);
+  } else {
+    motorApplyDirection(true, false);
+  }
 }
 
 static void configureAnalogInputs()
@@ -423,6 +437,7 @@ static bool decodeAppleFrame(uint32_t rawData, uint8_t* outAddress, uint8_t* out
 static void applyIrVolumeCommand(bool isVolUp)
 {
   const uint32_t nowMs = millis();
+  const bool wasRunning = g_motorRunning;
   if ((nowMs - g_lastIrApplyMs) < IR_REPEAT_MIN_INTERVAL_MS) {
     return; // Controlled repeat speed while button is held.
   }
@@ -436,20 +451,24 @@ static void applyIrVolumeCommand(bool isVolUp)
       motorStop();
       return;
     }
-    g_motorTargetAdc = (g_motorTargetAdc > (1023 - MOTOR_STEP_ADC)) ? 1023 : (g_motorTargetAdc + MOTOR_STEP_ADC);
-    motorRotateClockwise();
+    // Target step is always based on current measured pot position.
+    g_motorTargetAdc = (currentAdc > (1023 - MOTOR_STEP_ADC)) ? 1023 : (currentAdc + MOTOR_STEP_ADC);
+    motorStartVolumeUp();
   } else {
     if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
       g_motorTargetAdc = 0;
       motorStop();
       return;
     }
-    g_motorTargetAdc = (g_motorTargetAdc > MOTOR_STEP_ADC) ? (g_motorTargetAdc - MOTOR_STEP_ADC) : 0;
-    motorRotateAntiClockwise();
+    // Target step is always based on current measured pot position.
+    g_motorTargetAdc = (currentAdc > MOTOR_STEP_ADC) ? (currentAdc - MOTOR_STEP_ADC) : 0;
+    motorStartVolumeDown();
   }
 
-  g_motorRunStartMs = nowMs;
-  g_motorRunUntilMs = nowMs + MOTOR_COMMAND_PULSE_MS;
+  if (!wasRunning) {
+    g_motorRunStartMs = nowMs;
+  }
+  g_lastIrMotorCommandMs = nowMs;
 }
 
 static void handleAppleIrFrame(uint32_t rawData, bool isRepeat)
@@ -565,7 +584,9 @@ static void serviceMotorControl(uint32_t nowMs)
     return;
   }
 
-  if (nowMs >= g_motorRunUntilMs) {
+  // Keep motor moving smoothly while repeat frames continue;
+  // stop shortly after repeats stop (button released or IR lost).
+  if ((nowMs - g_lastIrMotorCommandMs) > IR_HOLD_STOP_TIMEOUT_MS) {
     motorStop();
     return;
   }
