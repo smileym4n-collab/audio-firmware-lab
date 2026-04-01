@@ -33,10 +33,11 @@
 #define I2S_DOUT_GPIO GPIO_NUM_13
 
 #define DEVICE_NAME "ESP32-BTDSP"
+#define PCM_WORK_BUFFER_BYTES 4096U
 
 static uint32_t s_a2dp_sample_rate = 44100;
 static bool s_logged_dsp_mode = false;
-static uint8_t s_pcm_work_buffer[4096];
+static uint8_t s_pcm_work_buffer[PCM_WORK_BUFFER_BYTES];
 
 static void i2s_reconfigure_for_rate(uint32_t sample_rate_hz)
 {
@@ -46,23 +47,31 @@ static void i2s_reconfigure_for_rate(uint32_t sample_rate_hz)
 
 static void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 {
+    // This callback is the audio pipeline entry point:
+    // 1) Bluetooth A2DP decoded PCM arrives here.
+    // 2) We copy into a local work buffer.
+    // 3) DSP stage processes samples (currently pass-through).
+    // 4) Processed PCM is written to I2S for the external DAC.
     if (data == NULL || len == 0) {
         return;
     }
 
-    if (len > sizeof(s_pcm_work_buffer)) {
+    if (len > PCM_WORK_BUFFER_BYTES) {
         ESP_LOGW(TAG, "PCM frame too large (%lu), truncating to %u bytes",
-                 (unsigned long)len, (unsigned int)sizeof(s_pcm_work_buffer));
-        len = sizeof(s_pcm_work_buffer);
+                 (unsigned long)len, (unsigned int)PCM_WORK_BUFFER_BYTES);
+        len = PCM_WORK_BUFFER_BYTES;
     }
 
+    // Work on a mutable copy so the callback input stays read-only.
     memcpy(s_pcm_work_buffer, data, len);
 
-    // A2DP sink PCM from ESP-IDF is interleaved stereo int16.
+    // ESP-IDF A2DP sink callback provides interleaved stereo PCM:
+    // [L0, R0, L1, R1, L2, R2, ...] as int16 samples.
     int16_t *samples = (int16_t *)s_pcm_work_buffer;
     uint32_t total_samples = len / sizeof(int16_t);
     uint32_t frame_count = total_samples / 2U;
 
+    // DSP hook: currently bypassed, kept as a dedicated stage for future EQ.
     dsp_process_stereo_int16(samples, frame_count);
 
     if (!s_logged_dsp_mode) {
@@ -70,6 +79,7 @@ static void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
         s_logged_dsp_mode = true;
     }
 
+    // Send the (currently unchanged) PCM stream to the DAC over I2S.
     size_t bytes_written = 0;
     esp_err_t err = i2s_write(I2S_PORT, s_pcm_work_buffer, len, &bytes_written, portMAX_DELAY);
     if (err != ESP_OK) {
@@ -79,7 +89,9 @@ static void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 
 static uint32_t a2dp_sample_rate_from_cfg(uint8_t octet0)
 {
-    // SBC sample-rate flags live in octet0 for ESP_A2D_MCT_SBC.
+    // SBC sample-rate flags in octet0 (A2DP codec info):
+    // bit7=16k, bit6=32k, bit5=44.1k, bit4=48k.
+    // We keep this helper simple and default to 44.1 kHz.
     if (octet0 & (1 << 6)) {
         return 32000;
     }
@@ -194,7 +206,8 @@ void app_main(void)
     init_i2s();
     init_bluetooth();
 
-    // Future runtime DSP update example:
+    // Future runtime DSP update example (same PEQ for both channels):
+    // less-boxy starting point: around 350-400 Hz, -3 dB, Q ~1.0
     // dsp_peq_settings_t peq = { .enabled = false, .center_frequency_hz = 380.0f, .gain_db = -3.0f, .q = 1.0f };
     // dsp_set_peq(&peq, &peq);
 }

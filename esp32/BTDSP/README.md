@@ -50,19 +50,30 @@ typedef struct {
 } dsp_peq_settings_t;
 ```
 
-## Build / flash / monitor
+## Build / flash / monitor (Windows + VS Code ESP-IDF extension)
 
-From this folder:
+### Recommended flow (beginner-friendly)
 
-```bash
+1. Install **ESP-IDF VS Code extension** and complete its setup wizard.
+2. In VS Code, open this folder as the project root:
+   - `.../audio-firmware-lab/esp32/BTDSP`
+3. Press `Ctrl+Shift+P` and run:
+   - `ESP-IDF: Set Espressif Device Target` -> select `esp32`
+   - `ESP-IDF: Build your project`
+   - `ESP-IDF: Flash your project`
+   - `ESP-IDF: Monitor your device`
+
+### Command-line flow (ESP-IDF PowerShell / ESP-IDF CMD)
+
+```powershell
 cd esp32/BTDSP
 idf.py set-target esp32
 idf.py build
-idf.py -p /dev/ttyUSB0 flash
-idf.py -p /dev/ttyUSB0 monitor
+idf.py -p COM5 flash
+idf.py -p COM5 monitor
 ```
 
-Use your serial port in place of `/dev/ttyUSB0`.
+Replace `COM5` with your board's actual COM port.
 
 ## UART boot/reset procedure (typical ESP32 dev boards)
 
@@ -73,6 +84,8 @@ If auto-reset/auto-boot does not work:
 3. Release **BOOT** after the flash tool starts connecting.
 
 Then reset once (EN/RESET) after flashing to boot the app.
+
+Tip for Windows: if flashing fails with a COM-port error, close any open Serial Monitor window first, then retry flash.
 
 ## Expected serial logs
 
@@ -90,3 +103,13 @@ You should see logs indicating:
 - ESP-IDF provides decoded interleaved stereo 16-bit PCM to the A2DP sink data callback.
 - External DAC accepts standard I2S (`BCK/LRCK/DATA`) without MCLK.
 - No persistent runtime settings are used yet (no NVS menus/control plane).
+
+## Quick edit map (where to change things later)
+
+- **I2S pins:** `main/main.c`
+  - `I2S_BCK_GPIO`
+  - `I2S_LRCK_GPIO`
+  - `I2S_DOUT_GPIO`
+- **DSP less-boxy tuning placeholder:** `main/dsp.c` in `dsp_init()` and `dsp_process_stereo_int16()`
+  - look for comment: `FUTURE "LESS BOXY" STARTING POINT`
+- **Runtime DSP hook usage example:** `main/main.c` near the commented `dsp_set_peq(...)` example in `app_main()`

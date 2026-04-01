@@ -7,6 +7,9 @@ All notable changes to this repository will be recorded here.
 ### Added
 - `esp32/BTDSP` adds a new minimal ESP-IDF A2DP sink project for ESP32 with I2S DAC output (`GPIO26` BCK, `GPIO25` LRCK, `GPIO13` DATA) and a pass-through DSP module scaffold for future EQ work
 
+### Changed
+- `esp32/BTDSP` improves beginner-facing clarity in Bluetooth PCM callback comments, DSP placeholder guidance, and Windows VS Code ESP-IDF setup/flash/monitor README instructions while keeping behavior unchanged
+
 ### Fixed
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
 - `attiny/1616/PreAmpv2` scopes debug-only LCD helper functions behind `PREAMPV2_LCD_DEBUG` to avoid unused-function warnings

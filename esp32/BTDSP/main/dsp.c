@@ -12,8 +12,11 @@ static dsp_peq_settings_t s_right_peq;
 
 void dsp_init(void)
 {
-    // Disabled by default. Example "boxy" cut placeholder:
-    // center_frequency_hz = 380.0f, gain_db = -3.0f, q = 1.0f
+    // Default PEQ placeholder (disabled).
+    // FUTURE "LESS BOXY" STARTING POINT:
+    //   center_frequency_hz = 380.0f
+    //   gain_db             = -3.0f
+    //   q                   = 1.0f
     s_left_peq = (dsp_peq_settings_t){
         .enabled = false,
         .center_frequency_hz = 380.0f,
@@ -35,16 +38,35 @@ void dsp_set_peq(const dsp_peq_settings_t *left, const dsp_peq_settings_t *right
 
 void dsp_process_stereo_int16(int16_t *interleaved_stereo, uint32_t frame_count)
 {
+    // Audio buffer format:
+    //   interleaved_stereo[0] = Left  sample for frame 0
+    //   interleaved_stereo[1] = Right sample for frame 0
+    //   interleaved_stereo[2] = Left  sample for frame 1
+    //   interleaved_stereo[3] = Right sample for frame 1
+    //   ...
+    //
+    // `frame_count` is the number of stereo frames.
+    //
+    // Current behavior: bypass all DSP and return unchanged audio.
+    // This keeps the path stable while making extension points explicit.
     (void)interleaved_stereo;
     (void)frame_count;
 
-    // Pass-through for now.
-    // Future work area: implement per-channel PEQ biquad here.
-    // 1) Split interleaved samples into L/R (or process in-place by index).
-    // 2) Apply optional PEQ when s_left_peq.enabled / s_right_peq.enabled.
-    // 3) Add optional bass/treble shelves.
-    // 4) Add optional mono-summed subwoofer low-pass path.
-    // 5) Re-pack to interleaved stereo before returning.
+    // ================= FUTURE DSP IMPLEMENTATION AREA =================
+    // 1) PEQ biquad (per channel):
+    //    - If s_left_peq.enabled, process left samples.
+    //    - If s_right_peq.enabled, process right samples.
+    //    - "Less boxy" first experiment:
+    //         center_frequency_hz: 350-400
+    //         gain_db:             about -3.0
+    //         q:                   about 1.0
+    //
+    // 2) Bass / treble shelves:
+    //    - Add optional low-shelf and high-shelf stages after PEQ.
+    //
+    // 3) Subwoofer low-pass:
+    //    - Optional mono sum (L+R)/2, then low-pass for sub out path.
+    // ==================================================================
 
     // Pass-through path intentionally does nothing and leaves samples unchanged.
 }
