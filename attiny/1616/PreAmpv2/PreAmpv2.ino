@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.4
+  Version: 0.3.5
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -109,9 +109,6 @@ static const float PGA_MAX_DB = +10.0f;
 static const uint16_t INPUT_BOUNDARY_1 = 266; // between DAC and AUX1 (based on measured 167/364)
 static const uint16_t INPUT_BOUNDARY_2 = 486; // between AUX1 and AUX2 (based on measured 364/608)
 static const uint16_t INPUT_BOUNDARY_3 = 724; // between AUX2 and PHONO (based on measured 608/839)
-
-// Schmitt hysteresis around each boundary to reduce chatter.
-static const uint8_t INPUT_HYST_ADC = 16;
 
 // Debounce requirement for input selection changes.
 static const uint8_t INPUT_STABLE_SAMPLES_REQUIRED = 3;
@@ -344,28 +341,18 @@ static void setPgaVolumeDb(float requestedDb)
 
 static InputSource readSelectedInput(uint16_t adcValue)
 {
-  // Schmitt-style decode: transition boundaries depend on current selection.
-  // This avoids relay chatter near threshold voltages.
-  switch (g_selectedInput) {
-    case INPUT_DAC:
-      if (adcValue > (INPUT_BOUNDARY_1 + INPUT_HYST_ADC)) return INPUT_AUX1;
-      return INPUT_DAC;
-
-    case INPUT_AUX1:
-      if (adcValue < (INPUT_BOUNDARY_1 - INPUT_HYST_ADC)) return INPUT_DAC;
-      if (adcValue > (INPUT_BOUNDARY_2 + INPUT_HYST_ADC)) return INPUT_AUX2;
-      return INPUT_AUX1;
-
-    case INPUT_AUX2:
-      if (adcValue < (INPUT_BOUNDARY_2 - INPUT_HYST_ADC)) return INPUT_AUX1;
-      if (adcValue > (INPUT_BOUNDARY_3 + INPUT_HYST_ADC)) return INPUT_PHONO;
-      return INPUT_AUX2;
-
-    case INPUT_PHONO:
-    default:
-      if (adcValue < (INPUT_BOUNDARY_3 - INPUT_HYST_ADC)) return INPUT_AUX2;
-      return INPUT_PHONO;
+  // Absolute decode from ladder ADC value. This allows direct jumps
+  // (for example PHONO -> DAC) in a single decode decision.
+  if (adcValue < INPUT_BOUNDARY_1) {
+    return INPUT_DAC;
   }
+  if (adcValue < INPUT_BOUNDARY_2) {
+    return INPUT_AUX1;
+  }
+  if (adcValue < INPUT_BOUNDARY_3) {
+    return INPUT_AUX2;
+  }
+  return INPUT_PHONO;
 }
 
 static void updateInputRelays(InputSource input)
