@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.8
+  Version: 0.3.9
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -8,9 +8,9 @@
   - 16x2 I2C LCD status output (input + dB)
   - Delayed output relay enable (1 second after startup)
 
-  Placeholders only (not implemented yet):
-  - IR control on PA6
-  - Motorized potentiometer drive on PB5/PB4
+  Added in this version:
+  - Apple-protocol IR volume control on PA6 (address 0xAA, commands 0x0B/0x0D)
+  - Motorized potentiometer drive on PB5/PB4 for IR volume up/down
 
   Target:
   - ATtiny1616, megaTinyCore, Arduino IDE
@@ -66,13 +66,13 @@ static const uint8_t RELAY_AUX2_PIN   = PIN_PC1; // Relay 3 (AUX 2)
 static const uint8_t RELAY_PHONO_PIN  = PIN_PC2; // Relay 4 (PHONO)
 static const uint8_t RELAY_OUTPUT_PIN = PIN_PC3; // Relay 5 (OUTPUT)
 
-static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor 1 placeholder (not used yet)
-static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor 2 placeholder (not used yet)
+static const uint8_t MOTOR_1_PIN      = PIN_PB5; // Motor drive IN1 (clockwise for volume up)
+static const uint8_t MOTOR_2_PIN      = PIN_PB4; // Motor drive IN2 (anti-clockwise for volume down)
 
 static const uint8_t I2C_SDA_PIN      = PIN_PA1; // SDA
 static const uint8_t I2C_SCL_PIN      = PIN_PA2; // SCL
 
-static const uint8_t IR_PIN           = PIN_PA6; // IR placeholder (not used yet)
+static const uint8_t IR_PIN           = PIN_PA6; // TSOP2438 IR demodulated input
 
 static const uint8_t PGA_MUTE_PIN     = PIN_PA4; // PGA2310 MUTE (assumed active LOW)
 static const uint8_t PGA_SDI_PIN      = PIN_PA5; // PGA2310 SDI
@@ -119,6 +119,20 @@ static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
 static const uint16_t DISPLAY_PERIOD_MS = 120;
 static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 
+// Motorized potentiometer control limits (PB5/PB4 through motor driver).
+static const uint16_t MOTOR_STEP_ADC = 8;              // One short IR press target increment.
+static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside this error band.
+static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
+static const uint16_t MOTOR_COMMAND_PULSE_MS = 85;     // Motor run pulse triggered by each IR command.
+static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
+static const uint16_t ADC_AT_MAX_THRESHOLD = 1022;     // Treat as top mechanical travel.
+
+// Apple IR command map (confirmed codes).
+static const uint8_t IR_APPLE_ADDRESS = 0xAA;
+static const uint8_t IR_APPLE_CMD_VOL_UP = 0x0B;
+static const uint8_t IR_APPLE_CMD_VOL_DOWN = 0x0D;
+static const uint16_t IR_REPEAT_MIN_INTERVAL_MS = 90;  // Controlled repeat speed while holding.
+
 // ADC assumptions (megaTinyCore default analogRead behavior):
 // - expected resolution is 10-bit (0..1023)
 // - default reference is VDD unless explicitly changed by firmware/board config
@@ -161,6 +175,23 @@ static uint32_t g_lastDebugMs = 0;
 static uint16_t g_lastVolAdc = 0;
 static uint16_t g_lastInputAdc = 0;
 static InputSource g_lastInputCandidate = INPUT_DAC;
+
+// Motor target state derived from IR commands.
+static uint16_t g_motorTargetAdc = 0;
+static bool g_motorRunning = false;
+static uint32_t g_motorRunStartMs = 0;
+static uint32_t g_motorRunUntilMs = 0;
+
+// IR decode state (Apple protocol uses NEC-like framing).
+static bool g_irPrevLevelHigh = true;
+static uint32_t g_irLastEdgeUs = 0;
+static uint16_t g_irLastMarkUs = 0;
+static bool g_irFrameActive = false;
+static uint8_t g_irBitIndex = 0;
+static uint32_t g_irRawData = 0;
+static uint8_t g_irLastAppleCommand = 0;
+static bool g_irHasLastAppleCommand = false;
+static uint32_t g_lastIrApplyMs = 0;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -219,6 +250,27 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
   }
 
   return static_cast<uint16_t>(sum / samples);
+}
+
+static void motorStop()
+{
+  digitalWrite(MOTOR_1_PIN, LOW);
+  digitalWrite(MOTOR_2_PIN, LOW);
+  g_motorRunning = false;
+}
+
+static void motorRotateClockwise()
+{
+  digitalWrite(MOTOR_1_PIN, HIGH);
+  digitalWrite(MOTOR_2_PIN, LOW);
+  g_motorRunning = true;
+}
+
+static void motorRotateAntiClockwise()
+{
+  digitalWrite(MOTOR_1_PIN, LOW);
+  digitalWrite(MOTOR_2_PIN, HIGH);
+  g_motorRunning = true;
 }
 
 static void configureAnalogInputs()
@@ -343,6 +395,185 @@ static void setPgaVolumeDb(float requestedDb)
   pgaWriteStereo(newCode);
   g_pgaCode = newCode;
   g_pgaDb = pgaCodeToDb(newCode); // show exact value sent
+}
+
+static bool isWithin(uint16_t value, uint16_t target, uint16_t tolerance)
+{
+  return (value >= (target > tolerance ? (target - tolerance) : 0)) &&
+         (value <= (target + tolerance));
+}
+
+static bool decodeAppleFrame(uint32_t rawData, uint8_t* outAddress, uint8_t* outCommand)
+{
+  // Observed Apple frame layout for this remote:
+  // [31:24] address, [23:16] command, [15:0] fixed trailer 0x87EE.
+  const uint8_t address = static_cast<uint8_t>((rawData >> 24) & 0xFFu);
+  const uint8_t command = static_cast<uint8_t>((rawData >> 16) & 0xFFu);
+  const uint16_t trailer = static_cast<uint16_t>(rawData & 0xFFFFu);
+
+  if (trailer != 0x87EEu) {
+    return false; // Not an Apple frame for this remote format.
+  }
+
+  *outAddress = address;
+  *outCommand = command;
+  return true;
+}
+
+static void applyIrVolumeCommand(bool isVolUp)
+{
+  const uint32_t nowMs = millis();
+  if ((nowMs - g_lastIrApplyMs) < IR_REPEAT_MIN_INTERVAL_MS) {
+    return; // Controlled repeat speed while button is held.
+  }
+  g_lastIrApplyMs = nowMs;
+
+  const uint16_t currentAdc = g_lastVolAdc;
+
+  if (isVolUp) {
+    if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+      g_motorTargetAdc = 1023;
+      motorStop();
+      return;
+    }
+    g_motorTargetAdc = (g_motorTargetAdc > (1023 - MOTOR_STEP_ADC)) ? 1023 : (g_motorTargetAdc + MOTOR_STEP_ADC);
+    motorRotateClockwise();
+  } else {
+    if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+      g_motorTargetAdc = 0;
+      motorStop();
+      return;
+    }
+    g_motorTargetAdc = (g_motorTargetAdc > MOTOR_STEP_ADC) ? (g_motorTargetAdc - MOTOR_STEP_ADC) : 0;
+    motorRotateAntiClockwise();
+  }
+
+  g_motorRunStartMs = nowMs;
+  g_motorRunUntilMs = nowMs + MOTOR_COMMAND_PULSE_MS;
+}
+
+static void handleAppleIrFrame(uint32_t rawData, bool isRepeat)
+{
+  uint8_t address = 0;
+  uint8_t command = 0;
+
+  if (isRepeat) {
+    if (!g_irHasLastAppleCommand) {
+      return;
+    }
+    command = g_irLastAppleCommand;
+    address = IR_APPLE_ADDRESS;
+  } else {
+    if (!decodeAppleFrame(rawData, &address, &command)) {
+      return;
+    }
+    if (address != IR_APPLE_ADDRESS) {
+      return;
+    }
+    g_irLastAppleCommand = command;
+    g_irHasLastAppleCommand = true;
+  }
+
+  if (command == IR_APPLE_CMD_VOL_UP) {
+    applyIrVolumeCommand(true);
+  } else if (command == IR_APPLE_CMD_VOL_DOWN) {
+    applyIrVolumeCommand(false);
+  }
+}
+
+static void processIrEdge(uint32_t nowUs, bool levelHigh)
+{
+  const uint32_t pulseWidth = nowUs - g_irLastEdgeUs;
+  g_irLastEdgeUs = nowUs;
+
+  if (!levelHigh) {
+    const uint16_t spaceUs = static_cast<uint16_t>(pulseWidth);
+
+    if (isWithin(g_irLastMarkUs, 9000, 1800) && isWithin(spaceUs, 4500, 900)) {
+      g_irFrameActive = true;
+      g_irBitIndex = 0;
+      g_irRawData = 0;
+      return;
+    }
+
+    if (isWithin(g_irLastMarkUs, 9000, 1800) && isWithin(spaceUs, 2250, 500)) {
+      handleAppleIrFrame(g_irRawData, true);
+      g_irFrameActive = false;
+      return;
+    }
+
+    if (!g_irFrameActive) {
+      return;
+    }
+
+    if (!isWithin(g_irLastMarkUs, 560, 250)) {
+      g_irFrameActive = false;
+      return;
+    }
+
+    const uint8_t bitValue = (spaceUs > 1000) ? 1u : 0u;
+    g_irRawData |= (static_cast<uint32_t>(bitValue) << g_irBitIndex);
+    ++g_irBitIndex;
+
+    if (g_irBitIndex >= 32u) {
+      handleAppleIrFrame(g_irRawData, false);
+      g_irFrameActive = false;
+    }
+    return;
+  }
+
+  g_irLastMarkUs = static_cast<uint16_t>(pulseWidth);
+}
+
+static void serviceIrReceiver()
+{
+  const uint32_t nowUs = micros();
+  const bool levelHigh = (digitalRead(IR_PIN) == HIGH);
+
+  if (levelHigh != g_irPrevLevelHigh) {
+    processIrEdge(nowUs, levelHigh);
+    g_irPrevLevelHigh = levelHigh;
+  }
+
+  if ((nowUs - g_irLastEdgeUs) > 20000u) {
+    g_irFrameActive = false;
+  }
+}
+
+static void serviceMotorControl(uint32_t nowMs)
+{
+  const uint16_t currentAdc = g_lastVolAdc;
+
+  if (currentAdc <= ADC_AT_MIN_THRESHOLD) {
+    g_motorTargetAdc = 0;
+    motorStop();
+    return;
+  }
+
+  if (currentAdc >= ADC_AT_MAX_THRESHOLD) {
+    g_motorTargetAdc = 1023;
+    motorStop();
+    return;
+  }
+
+  if (!g_motorRunning) {
+    return;
+  }
+
+  if ((nowMs - g_motorRunStartMs) >= MOTOR_MAX_RUN_MS) {
+    motorStop();
+    return;
+  }
+
+  if (nowMs >= g_motorRunUntilMs) {
+    motorStop();
+    return;
+  }
+
+  if (currentAdc + MOTOR_DEADBAND_ADC >= g_motorTargetAdc &&
+      currentAdc <= g_motorTargetAdc + MOTOR_DEADBAND_ADC) {
+    motorStop();
+  }
 }
 
 static InputSource readSelectedInput(uint16_t adcValue)
@@ -526,8 +757,8 @@ static void initializeGpioSafe()
   digitalWrite(RELAY_PHONO_PIN, RELAY_INACTIVE_STATE);
   digitalWrite(RELAY_OUTPUT_PIN, RELAY_INACTIVE_STATE); // output relay OFF during delay
 
-  digitalWrite(MOTOR_1_PIN, LOW); // placeholder-safe
-  digitalWrite(MOTOR_2_PIN, LOW); // placeholder-safe
+  digitalWrite(MOTOR_1_PIN, LOW); // motor off at startup
+  digitalWrite(MOTOR_2_PIN, LOW); // motor off at startup
 
   digitalWrite(PGA_CS_PIN, HIGH);
   digitalWrite(PGA_SCLK_PIN, LOW);
@@ -556,11 +787,16 @@ void setup()
   setPgaVolumeDb(-80.0f);
 
   g_bootMs = millis();
+  g_lastVolAdc = readAdcAveraged(VOL_ADC_PIN, 8);
+  g_motorTargetAdc = g_lastVolAdc;
+  g_irPrevLevelHigh = (digitalRead(IR_PIN) == HIGH);
+  g_irLastEdgeUs = micros();
 }
 
 void loop()
 {
   const uint32_t nowMs = millis();
+  serviceIrReceiver();
 
   // Delayed output relay turn-on.
   if (!g_outputRelayEnabled && (nowMs - g_bootMs >= OUTPUT_RELAY_DELAY_MS)) {
@@ -604,6 +840,8 @@ void loop()
     setPgaVolumeDb(requestedDb);
   }
 
+  serviceMotorControl(nowMs);
+
   // LCD update task.
   if (nowMs - g_lastDisplayMs >= DISPLAY_PERIOD_MS) {
     g_lastDisplayMs = nowMs;
@@ -624,6 +862,4 @@ void loop()
     DBG_PRINTLN(g_pgaCode);
   }
 
-  // Placeholder for future IR task (PA6).
-  // Placeholder for future motorized potentiometer task (PB5/PB4).
 }
