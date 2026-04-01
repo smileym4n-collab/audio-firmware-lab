@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.2
+  Version: 0.3.8
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -106,12 +106,9 @@ static const float PGA_MAX_DB = +10.0f;
 // AUX2  ~1.98V -> ADC ~614
 // PHONO ~2.75V -> ADC ~852
 // Midpoint boundaries:
-static const uint16_t INPUT_BOUNDARY_1 = 278; // between DAC and AUX1
-static const uint16_t INPUT_BOUNDARY_2 = 495; // between AUX1 and AUX2
-static const uint16_t INPUT_BOUNDARY_3 = 733; // between AUX2 and PHONO
-
-// Schmitt hysteresis around each boundary to reduce chatter.
-static const uint8_t INPUT_HYST_ADC = 16;
+static const uint16_t INPUT_BOUNDARY_1 = 266; // between DAC and AUX1 (based on measured 167/364)
+static const uint16_t INPUT_BOUNDARY_2 = 486; // between AUX1 and AUX2 (based on measured 364/608)
+static const uint16_t INPUT_BOUNDARY_3 = 724; // between AUX2 and PHONO (based on measured 608/839)
 
 // Debounce requirement for input selection changes.
 static const uint8_t INPUT_STABLE_SAMPLES_REQUIRED = 3;
@@ -163,10 +160,54 @@ static uint32_t g_lastDebugMs = 0;
 
 static uint16_t g_lastVolAdc = 0;
 static uint16_t g_lastInputAdc = 0;
+static InputSource g_lastInputCandidate = INPUT_DAC;
 
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+#if PREAMPV2_LCD_DEBUG
+static const char* inputShortName(InputSource input)
+{
+  switch (input) {
+    case INPUT_DAC: return "DAC";
+    case INPUT_AUX1: return "A1";
+    case INPUT_AUX2: return "A2";
+    case INPUT_PHONO: return "PH";
+    default: return "?";
+  }
+}
+
+#endif
+
+static void formatTenthsDb(int16_t dbTenths, char* out, size_t outLen)
+{
+  if (outLen < 2) {
+    return;
+  }
+
+  const char sign = (dbTenths < 0) ? '-' : '+';
+  int16_t absTenths = dbTenths < 0 ? static_cast<int16_t>(-dbTenths) : dbTenths;
+  const uint16_t whole = static_cast<uint16_t>(absTenths / 10);
+  const uint8_t frac = static_cast<uint8_t>(absTenths % 10);
+  snprintf(out, outLen, "%c%u.%u", sign, whole, frac);
+}
+
+#if PREAMPV2_LCD_DEBUG
+static void formatAdcVoltage(uint16_t adcValue, char* out, size_t outLen)
+{
+  if (outLen < 2) {
+    return;
+  }
+
+  const uint32_t mv = (static_cast<uint32_t>(adcValue) * 3300UL + 511UL) / 1023UL;
+  const uint16_t whole = static_cast<uint16_t>(mv / 1000UL);
+  const uint16_t frac = static_cast<uint16_t>((mv % 1000UL) / 10UL);
+  snprintf(out, outLen, "%u.%02uV", whole, frac);
+}
+
+#endif
+
 static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
 {
   analogRead(pin); // throwaway sample after mux selection
@@ -306,28 +347,18 @@ static void setPgaVolumeDb(float requestedDb)
 
 static InputSource readSelectedInput(uint16_t adcValue)
 {
-  // Schmitt-style decode: transition boundaries depend on current selection.
-  // This avoids relay chatter near threshold voltages.
-  switch (g_selectedInput) {
-    case INPUT_DAC:
-      if (adcValue > (INPUT_BOUNDARY_1 + INPUT_HYST_ADC)) return INPUT_AUX1;
-      return INPUT_DAC;
-
-    case INPUT_AUX1:
-      if (adcValue < (INPUT_BOUNDARY_1 - INPUT_HYST_ADC)) return INPUT_DAC;
-      if (adcValue > (INPUT_BOUNDARY_2 + INPUT_HYST_ADC)) return INPUT_AUX2;
-      return INPUT_AUX1;
-
-    case INPUT_AUX2:
-      if (adcValue < (INPUT_BOUNDARY_2 - INPUT_HYST_ADC)) return INPUT_AUX1;
-      if (adcValue > (INPUT_BOUNDARY_3 + INPUT_HYST_ADC)) return INPUT_PHONO;
-      return INPUT_AUX2;
-
-    case INPUT_PHONO:
-    default:
-      if (adcValue < (INPUT_BOUNDARY_3 - INPUT_HYST_ADC)) return INPUT_AUX2;
-      return INPUT_PHONO;
+  // Absolute decode from ladder ADC value. This allows direct jumps
+  // (for example PHONO -> DAC) in a single decode decision.
+  if (adcValue < INPUT_BOUNDARY_1) {
+    return INPUT_DAC;
   }
+  if (adcValue < INPUT_BOUNDARY_2) {
+    return INPUT_AUX1;
+  }
+  if (adcValue < INPUT_BOUNDARY_3) {
+    return INPUT_AUX2;
+  }
+  return INPUT_PHONO;
 }
 
 static void updateInputRelays(InputSource input)
@@ -346,40 +377,66 @@ static void updateDisplay()
   }
 
 #if PREAMPV2_LCD_DEBUG
-  // Temporary LCD debug mode for boards without UART access.
-  // Line 1: selected input + raw input ladder ADC.
-  // Line 2: raw volume ADC + PGA code being sent.
+  // LCD diagnostics mode for relay + ADC validation on hardware.
+  // Alternates pages every ~1 second:
+  //   Page A: input decode state + relay output states
+  //   Page B: volume ADC count + estimated voltage + PGA target
   static uint16_t lastInputAdcShown = 65535;
   static uint16_t lastVolAdcShown = 65535;
   static InputSource lastInputShown = INPUT_COUNT;
+  static InputSource lastCandidateShown = INPUT_COUNT;
   static uint8_t lastCodeShown = 255;
+  static bool lastPageA = false;
+
+  const bool showPageA = ((millis() / 1000UL) % 2UL) == 0UL;
 
   if ((g_selectedInput == lastInputShown) &&
+      (g_lastInputCandidate == lastCandidateShown) &&
       (g_lastInputAdc == lastInputAdcShown) &&
       (g_lastVolAdc == lastVolAdcShown) &&
-      (g_pgaCode == lastCodeShown)) {
+      (g_pgaCode == lastCodeShown) &&
+      (showPageA == lastPageA)) {
     return;
   }
 
-  const char* inputShort = "DAC";
-  if (g_selectedInput == INPUT_AUX1) {
-    inputShort = "AU1";
-  } else if (g_selectedInput == INPUT_AUX2) {
-    inputShort = "AU2";
-  } else if (g_selectedInput == INPUT_PHONO) {
-    inputShort = "PHO";
+  char line0[LCD_COLS + 1];
+  char line1[LCD_COLS + 1];
+
+  if (showPageA) {
+    snprintf(line0, sizeof(line0), "S:%-3s C:%-2s A%3u",
+             inputShortName(g_selectedInput),
+             inputShortName(g_lastInputCandidate),
+             g_lastInputAdc);
+
+    const uint8_t relayDac = digitalRead(RELAY_DAC_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayAux1 = digitalRead(RELAY_AUX1_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayAux2 = digitalRead(RELAY_AUX2_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+    const uint8_t relayPhono = digitalRead(RELAY_PHONO_PIN) == RELAY_ACTIVE_STATE ? 1 : 0;
+
+    snprintf(line1, sizeof(line1), "R:%u%u%u%u OUT:%u",
+             relayDac, relayAux1, relayAux2, relayPhono,
+             digitalRead(RELAY_OUTPUT_PIN) == RELAY_ACTIVE_STATE ? 1 : 0);
+  } else {
+    char volText[8];
+    char dbText[8];
+    formatAdcVoltage(g_lastVolAdc, volText, sizeof(volText));
+    formatTenthsDb(static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5)), dbText, sizeof(dbText));
+
+    snprintf(line0, sizeof(line0), "VOL:%4u %s",
+             g_lastVolAdc,
+             volText);
+
+    snprintf(line1, sizeof(line1), "DB:%6s C:%3u",
+             dbText,
+             g_pgaCode);
   }
 
-  char line0[LCD_COLS + 1];
-  snprintf(line0, sizeof(line0), "IN:%s A:%3u", inputShort, g_lastInputAdc);
   g_lcd.setCursor(0, 0);
   g_lcd.print(line0);
   for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
     g_lcd.print(' ');
   }
 
-  char line1[LCD_COLS + 1];
-  snprintf(line1, sizeof(line1), "V:%3u C:%3u", g_lastVolAdc, g_pgaCode);
   g_lcd.setCursor(0, 1);
   g_lcd.print(line1);
   for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
@@ -387,39 +444,45 @@ static void updateDisplay()
   }
 
   lastInputShown = g_selectedInput;
+  lastCandidateShown = g_lastInputCandidate;
   lastInputAdcShown = g_lastInputAdc;
   lastVolAdcShown = g_lastVolAdc;
   lastCodeShown = g_pgaCode;
+  lastPageA = showPageA;
 #else
   static InputSource lastInputShown = INPUT_COUNT;
   static int16_t lastDbTenthsShown = 32767;
 
   if (g_selectedInput != lastInputShown) {
-    char line0[LCD_COLS + 1];
-    const size_t inputLen = strlen(INPUT_NAMES[g_selectedInput]);
-    const int8_t inputPad = (LCD_COLS > inputLen) ? static_cast<int8_t>((LCD_COLS - inputLen) / 2) : 0;
-    snprintf(line0, sizeof(line0), "%*s%s", inputPad, "", INPUT_NAMES[g_selectedInput]);
+    const char* inputText = INPUT_NAMES[g_selectedInput];
+    const size_t inputLen = strlen(inputText);
+    const uint8_t inputPad = (LCD_COLS > inputLen) ? static_cast<uint8_t>((LCD_COLS - inputLen) / 2) : 0;
+
     g_lcd.setCursor(0, 0);
-    g_lcd.print(line0);
-    for (uint8_t i = strlen(line0); i < LCD_COLS; ++i) {
+    for (uint8_t i = 0; i < LCD_COLS; ++i) {
       g_lcd.print(' ');
     }
+    g_lcd.setCursor(inputPad, 0);
+    g_lcd.print(inputText);
     lastInputShown = g_selectedInput;
   }
 
-  const int16_t dbTenths = static_cast<int16_t>(g_pgaDb * 10.0f);
+  const int16_t dbTenths = static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5));
   if (dbTenths != lastDbTenthsShown) {
+    char dbText[8];
+    formatTenthsDb(dbTenths, dbText, sizeof(dbText));
+
     char volumeText[12];
-    snprintf(volumeText, sizeof(volumeText), "%.1f dB", static_cast<double>(g_pgaDb));
-    char line1[LCD_COLS + 1];
+    snprintf(volumeText, sizeof(volumeText), "%s dB", dbText);
     const size_t volumeLen = strlen(volumeText);
-    const int8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<int8_t>((LCD_COLS - volumeLen) / 2) : 0;
-    snprintf(line1, sizeof(line1), "%*s%s", volumePad, "", volumeText);
+    const uint8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<uint8_t>((LCD_COLS - volumeLen) / 2) : 0;
+
     g_lcd.setCursor(0, 1);
-    g_lcd.print(line1);
-    for (uint8_t i = strlen(line1); i < LCD_COLS; ++i) {
+    for (uint8_t i = 0; i < LCD_COLS; ++i) {
       g_lcd.print(' ');
     }
+    g_lcd.setCursor(volumePad, 1);
+    g_lcd.print(volumeText);
     lastDbTenthsShown = dbTenths;
   }
 #endif
@@ -513,6 +576,7 @@ void loop()
     const uint16_t inputAdc = readAdcAveraged(INPUT_ADC_PIN, 8);
     g_lastInputAdc = inputAdc;
     const InputSource candidate = readSelectedInput(inputAdc);
+    g_lastInputCandidate = candidate;
 
     if (candidate == g_pendingInput) {
       if (g_pendingInputStableCount < 255) {

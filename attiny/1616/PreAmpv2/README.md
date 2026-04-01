@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.2
+Version: 0.3.8
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -33,7 +33,7 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
   - ~1.21V -> AUX 1
   - ~1.98V -> AUX 2
   - ~2.75V -> PHONO
-- Midpoint boundary decoding with ADC hysteresis + sample debounce to reduce relay chatter.
+- Midpoint boundary decoding with sample debounce to reduce relay chatter.
 - Exactly one input relay is energized at a time.
 - Output relay (`PC3`) remains OFF on startup and enables after 1 second.
 - PGA2310 stereo volume control from `PB1` potentiometer ADC.
@@ -48,6 +48,40 @@ I2C pins are explicitly forced in code with:
 ```cpp
 Wire.pins(PIN_PA1, PIN_PA2);
 ```
+
+
+## LCD diagnostics mode (optional, disabled by default)
+- `PREAMPV2_LCD_DEBUG` defaults to `0` in this version. Set it to `1` when you want hardware diagnostics on the LCD.
+- The LCD alternates once per second between two test pages:
+  - **Page A (input/relay):** selected input (`S:`), decoded candidate (`C:`), raw input ADC (`Axxx`), and relay states (`R:1234 OUT:x`).
+  - **Page B (volume):** raw volume ADC (`VOL:`), estimated input voltage (`x.xxV`), actual applied dB (`DB:`), and PGA code (`C:`).
+- Relay state legend for `R:1234` is: DAC, AUX1, AUX2, PHONO (`1` = active output state, `0` = inactive output state).
+- Set `PREAMPV2_LCD_DEBUG` to `0` to return to normal two-line user display mode.
+
+- Normal (non-debug) LCD dB rendering avoids float `snprintf` and uses fixed-point formatting for reliable AVR display updates.
+- Normal display centering now writes directly to LCD (no formatted width specifiers), improving compatibility on constrained AVR `printf` builds.
+
+## Latest hardware calibration
+- Input ladder changeover thresholds were retuned from real measurements:
+  - DAC: `167`
+  - AUX 1: `364`
+  - AUX 2: `608`
+  - PHONO: `839`
+- Midpoint boundaries now use:
+  - `INPUT_BOUNDARY_1 = 266`
+  - `INPUT_BOUNDARY_2 = 486`
+  - `INPUT_BOUNDARY_3 = 724`
+
+## AVR-safe diagnostics formatting
+- The LCD diagnostics no longer rely on `%f` formatting in `snprintf` for voltage/dB output.
+- Voltage is displayed from integer millivolt math, and dB is rendered from PGA code in fixed-point tenths.
+- This avoids float-format limitations that can show `?` on AVR builds without float `printf` support.
+
+## Default LCD display
+- With `PREAMPV2_LCD_DEBUG = 0`, the display shows:
+  - Top row: selected input (centered)
+  - Bottom row: volume in dB (centered)
+  - No additional labels/text
 
 ## Volume mapping strategy
 - Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
