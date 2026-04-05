@@ -1,7 +1,7 @@
-# Battery undervoltage LED warning (ATtiny412)
+# Battery divider LED status monitor (ATtiny412)
 
 ## Summary
-Simple Arduino/megaTinyCore sketch for ATtiny412 that monitors battery voltage through a resistor divider and blinks an LED with PWM when battery voltage drops below **12.0 V**.
+Simple Arduino/megaTinyCore sketch for ATtiny412 that monitors the divided battery-sense voltage on `PA6` and drives a status LED on `PA3`.
 
 ## MCU / framework
 - MCU: ATtiny412
@@ -9,19 +9,19 @@ Simple Arduino/megaTinyCore sketch for ATtiny412 that monitors battery voltage t
 
 ## Pin map
 - `PA3` -> LED cathode (active LOW output, PWM capable)
-- `PA6` -> Battery sense ADC input from divider
+- `PA6` -> Divider output ADC input
 
 ## Hardware assumptions
-- Divider: `270k` from battery+ to `PA6`, `47k` from `PA6` to GND
-- Battery full voltage around `16.8 V`
+- `PA6` sees the divider-node voltage (not raw battery voltage)
 - ADC reference assumed to be `Vcc = 5.0 V` (default `analogRead` reference in this sketch)
-- LED is wired to sink current on PA3 (anode to Vcc through resistor)
+- LED is wired to sink current on `PA3` (anode to Vcc through resistor)
 
 ## Behaviour
-- Samples battery sense input continuously.
-- Uses a small sample-confirmation filter to avoid threshold chatter.
-- If battery voltage is below `12.0 V`, LED on `PA3` blinks with PWM brightness.
-- If battery voltage is at/above threshold, LED stays off.
+- Samples `PA6` continuously.
+- Uses sample-confirmation and small hysteresis to reduce threshold chatter.
+- If `PA6` is at/below **1.75 V**, LED enters warning mode: PWM pulse with **2 s ON / 2 s OFF**.
+- If `PA6` is at/below **1.60 V**, LED enters critical mode: **solid ON**.
+- If `PA6` rises above thresholds (with hysteresis), mode steps back to warning or off.
 
 ## Build / upload notes
 - Select **ATtiny412** in Arduino IDE with megaTinyCore installed.
