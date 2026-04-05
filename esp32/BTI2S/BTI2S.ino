@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.7.1
+// Version: 0.7.2
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -38,6 +38,8 @@
 //   AUDIO_SOURCE_MODE_AIRPLAY    -> initialization hook + safe Bluetooth fallback
 #define AUDIO_SOURCE_MODE_BLUETOOTH 1
 #define AUDIO_SOURCE_MODE_AIRPLAY 2
+// Set true only after wiring a real AirPlay backend into startAirPlaySource().
+static constexpr bool AIRPLAY_BACKEND_ENABLED = false;
 
 #ifndef AUDIO_SOURCE_MODE
 #define AUDIO_SOURCE_MODE AUDIO_SOURCE_MODE_BLUETOOTH
@@ -78,9 +80,16 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
+// Prints periodic I2S write activity to verify that PCM is flowing.
+static constexpr bool ENABLE_AUDIO_PATH_DEBUG = true;
 // Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
 static constexpr bool ENABLE_ENCODER_CONTROLS = false;
 static bool i2sInitialized = false;
+static bool activeSourceIsAirPlay = false;
+static uint32_t currentI2SSampleRate = 44100;
+static uint32_t i2sCallbackCount = 0;
+static uint32_t i2sBytesWrittenTotal = 0;
+static unsigned long lastI2SDebugAtMs = 0;
 
 static BluetoothA2DPSink &getA2DPSink() {
   static BluetoothA2DPSink sink;
@@ -152,12 +161,31 @@ static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
   }
   size_t bytesWritten = 0;
   i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+
+  if (ENABLE_AUDIO_PATH_DEBUG) {
+    i2sCallbackCount++;
+    i2sBytesWrittenTotal += static_cast<uint32_t>(bytesWritten);
+    unsigned long nowMs = millis();
+    if ((nowMs - lastI2SDebugAtMs) >= 2000UL) {
+      if (ENABLE_SERIAL_DEBUG) {
+        Serial.printf("Audio flow: source=%s callbacks=%lu bytes=%lu sample_rate=%lu Hz\n",
+                      activeSourceIsAirPlay ? "AirPlay" : "Bluetooth",
+                      static_cast<unsigned long>(i2sCallbackCount),
+                      static_cast<unsigned long>(i2sBytesWrittenTotal),
+                      static_cast<unsigned long>(currentI2SSampleRate));
+      }
+      i2sCallbackCount = 0;
+      i2sBytesWrittenTotal = 0;
+      lastI2SDebugAtMs = nowMs;
+    }
+  }
 }
 
 static void i2sSampleRateCallback(uint16_t rate) {
   if (!i2sInitialized || rate == 0) {
     return;
   }
+  currentI2SSampleRate = rate;
   i2s_set_clk(I2S_PORT, rate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("I2S sample rate set: %u Hz\n", static_cast<unsigned>(rate));
@@ -353,7 +381,18 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
+  if (line.equalsIgnoreCase("status")) {
+    Serial.printf("Requested source mode: %s\n",
+                  (AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY) ? "AirPlay" : "Bluetooth");
+    Serial.printf("Active source: %s\n", activeSourceIsAirPlay ? "AirPlay" : "Bluetooth");
+    Serial.printf("AirPlay backend enabled: %s\n", AIRPLAY_BACKEND_ENABLED ? "true" : "false");
+    Serial.printf("I2S initialized: %s, sample rate: %lu Hz\n",
+                  i2sInitialized ? "true" : "false",
+                  static_cast<unsigned long>(currentI2SSampleRate));
+    return;
+  }
+
+  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | status");
 }
 
 
@@ -392,6 +431,7 @@ static void startBluetoothSource() {
   a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());
+  activeSourceIsAirPlay = false;
   applyOutputVolume();
 }
 
@@ -402,7 +442,16 @@ static void startBluetoothSource() {
 static bool startAirPlaySource() {
   if (ENABLE_SERIAL_DEBUG) {
     Serial.println("setup: AirPlay mode selected");
+    Serial.printf("setup: AIRPLAY_BACKEND_ENABLED=%s\n", AIRPLAY_BACKEND_ENABLED ? "true" : "false");
     Serial.println("setup: no AirPlay backend linked in this sketch yet; falling back to Bluetooth");
+    Serial.println("setup: to test AirPlay, keep AUDIO_SOURCE_MODE=AUDIO_SOURCE_MODE_AIRPLAY and wire backend code into startAirPlaySource()");
+  }
+  activeSourceIsAirPlay = false;
+  if (AIRPLAY_BACKEND_ENABLED) {
+    // Placeholder path for a future real AirPlay backend startup.
+    // Return true when backend has started and is feeding i2sAudioDataCallback().
+    activeSourceIsAirPlay = true;
+    return true;
   }
   return false;
 }
@@ -447,10 +496,11 @@ void setup() {
   }
 
   if (ENABLE_SERIAL_DEBUG) {
+    Serial.printf("Active source after setup: %s\n", activeSourceIsAirPlay ? "AirPlay" : "Bluetooth");
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | status");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }

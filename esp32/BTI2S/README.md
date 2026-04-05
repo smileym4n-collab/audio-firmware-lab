@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.7.1
+0.7.2
 
 ## Summary
 
@@ -69,6 +69,15 @@ In this codebase, AirPlay is added as a **conservative integration point**:
 Reason:
 - For ESP32, mature AirPlay receiver implementations are typically ESP-IDF-based and significantly different from Arduino A2DP-sink sketches.
 - This staged approach keeps your known-good Bluetooth path live while creating a clear insertion point for a proven AirPlay backend.
+
+
+### Why AirPlay does not start yet
+
+If you set `AUDIO_SOURCE_MODE` to `AUDIO_SOURCE_MODE_AIRPLAY` today, startup still falls back to Bluetooth unless `AIRPLAY_BACKEND_ENABLED` is set to `true` **and** `startAirPlaySource()` is implemented with a real AirPlay receiver backend.
+
+For debugging over Serial (115200):
+- `status` prints requested mode, active mode, AirPlay backend flag, and I2S sample-rate state
+- periodic `Audio flow: ...` lines show whether PCM is actually reaching I2S
 
 ### Recommended practical approach for full AirPlay
 

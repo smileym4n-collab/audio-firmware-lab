@@ -10,6 +10,9 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.7.0`
 - `esp32/BTI2S` changes `AUDIO_SOURCE_MODE_AIRPLAY` from compile-time hard stop to a conservative startup hook with automatic Bluetooth fallback
 - `esp32/BTI2S` version bumped to `0.7.1`
+- `esp32/BTI2S` adds `status` serial diagnostics and periodic audio-flow debug logs to help confirm active source and I2S PCM activity
+- `esp32/BTI2S` clarifies AirPlay startup requirements (`AUDIO_SOURCE_MODE` + `AIRPLAY_BACKEND_ENABLED` + backend wiring in `startAirPlaySource()`)
+- `esp32/BTI2S` version bumped to `0.7.2`
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
 
