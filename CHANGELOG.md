@@ -4,6 +4,10 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Changed
+- `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
+- `esp32/BTI2S` version bumped to `0.6.0`
+
 ### Fixed
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
 - `attiny/1616/PreAmpv2` scopes debug-only LCD helper functions behind `PREAMPV2_LCD_DEBUG` to avoid unused-function warnings

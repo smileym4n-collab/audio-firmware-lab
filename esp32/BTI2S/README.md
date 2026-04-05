@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.5.1
+0.6.0
 
 ## Summary
 
@@ -33,6 +33,7 @@ Arduino sketch for ESP32 that:
 - BT sink object is constructed on first use in `setup()` (not as a global static object) to reduce startup crashes from early initialization ordering.
 - Uses explicit ESP-IDF I2S driver setup on `IO26/IO25/IO13` and feeds PCM via A2DP stream callback for deterministic output routing.
 - Rotary encoder controls volume in 2% steps.
+- Firmware applies a configurable output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`, default `85`) to reduce clipping in downstream DACs on hot source material.
 - Pressing the encoder switch toggles mute/unmute.
 - Turning the encoder while muted unmutes and applies the new volume.
 - ESP32 starts A2DP sink and outputs I2S audio on the pins above.
@@ -40,6 +41,7 @@ Arduino sketch for ESP32 that:
   - baud: `115200`
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
+  - Requested volume above the cap is safely clamped before being applied to the A2DP sink.
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
 - Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
