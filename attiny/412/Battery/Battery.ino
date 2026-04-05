@@ -1,12 +1,12 @@
 /*
-  Battery undervoltage LED warning for ATtiny412 (megaTinyCore)
+  Battery divider monitor LED indicator for ATtiny412 (megaTinyCore)
 
-  Monitors a divided battery voltage on PA6 and blinks an LED on PA3 when
-  battery voltage drops below a configurable threshold.
+  Monitors the divided battery sense voltage on PA6 and drives an LED on PA3:
+  - PA6 <= 1.75 V: PWM pulse (2 s ON, 2 s OFF)
+  - PA6 <= 1.60 V: LED solid ON
 
   Assumptions:
   - ATtiny412 running with Vcc = 5.0 V ADC reference (default analogReference)
-  - Divider: 270k (top, battery+) and 47k (bottom, GND)
   - LED anode goes to Vcc through a resistor, cathode goes to PA3
     (PA3 sinks current, so LOW = LED on, HIGH = LED off)
 */
@@ -15,41 +15,44 @@
 // Pin map (ATtiny412)
 // -----------------------------
 // PA3 -> LED cathode (active LOW, PWM capable output)
-// PA6 -> battery sense input from divider (270k / 47k)
+// PA6 -> divided battery sense input (ADC)
 
-const uint8_t PIN_LED = PIN_PA3;      // LED output (sinking)
+const uint8_t PIN_LED = PIN_PA3;       // LED output (sinking)
 const uint8_t PIN_BAT_SENSE = PIN_PA6; // Divider output to ADC
-
-// Divider values in ohms
-const float R_TOP = 270000.0f;    // 270k from battery+ to PA6
-const float R_BOTTOM = 47000.0f;  // 47k from PA6 to GND
 
 // ADC assumption for default reference (Vcc)
 const float ADC_REF_V = 5.0f;
 const uint16_t ADC_MAX = 1023;
 
-// Undervoltage threshold
-const float BATTERY_LOW_V = 12.0f;
+// Divider-node voltage thresholds (voltage measured directly at PA6)
+const float WARNING_PA6_V = 1.75f; // Enter PWM pulse mode
+const float CRITICAL_PA6_V = 1.60f; // Enter solid-on mode
 
-// Blink settings
-const unsigned long BLINK_PERIOD_MS = 500; // Toggle every 500 ms
-const uint8_t LED_ON_BRIGHTNESS = 64;      // 0..255 (PWM brightness)
+// Small hysteresis to reduce chatter around each threshold
+const float WARNING_HYSTERESIS_V = 0.03f;
+const float CRITICAL_HYSTERESIS_V = 0.03f;
 
-// Simple software debounce/filter for threshold crossing
-const uint8_t LOW_BAT_CONFIRM_SAMPLES = 4;
-const uint8_t OK_BAT_CONFIRM_SAMPLES = 4;
+// LED behavior settings
+const unsigned long WARNING_TOGGLE_MS = 2000; // Toggle ON/OFF every 2 seconds
+const uint8_t LED_PWM_BRIGHTNESS = 64;         // Warning-mode PWM brightness (0..255)
 
-unsigned long lastBlinkMs = 0;
-bool blinkOnPhase = false;
-bool lowBatteryActive = false;
-uint8_t lowCount = 0;
-uint8_t okCount = 0;
+// Simple software debounce/filter for state changes
+const uint8_t STATE_CONFIRM_SAMPLES = 4;
 
-uint16_t batteryThresholdAdcCount() {
-  // Vadc = Vbat * (R_BOTTOM / (R_TOP + R_BOTTOM))
-  const float dividerRatio = (R_BOTTOM / (R_TOP + R_BOTTOM));
-  const float thresholdAdc = (BATTERY_LOW_V * dividerRatio / ADC_REF_V) * ADC_MAX;
-  return (uint16_t)(thresholdAdc + 0.5f);
+enum LedState : uint8_t {
+  LED_STATE_OK = 0,
+  LED_STATE_WARNING,
+  LED_STATE_CRITICAL
+};
+
+LedState ledState = LED_STATE_OK;
+uint8_t pendingCount = 0;
+unsigned long lastToggleMs = 0;
+bool warningOnPhase = false;
+
+uint16_t adcCountFromVoltage(float voltage) {
+  const float adc = (voltage / ADC_REF_V) * ADC_MAX;
+  return (uint16_t)(adc + 0.5f);
 }
 
 void setLedBrightness(uint8_t brightness) {
@@ -57,6 +60,46 @@ void setLedBrightness(uint8_t brightness) {
   // brightness 0   -> fully off (pin HIGH)
   // brightness 255 -> fully on  (pin LOW)
   analogWrite(PIN_LED, 255 - brightness);
+}
+
+LedState classifyTargetState(uint16_t adcValue) {
+  const uint16_t warningEnter = adcCountFromVoltage(WARNING_PA6_V);
+  const uint16_t warningExit = adcCountFromVoltage(WARNING_PA6_V + WARNING_HYSTERESIS_V);
+  const uint16_t criticalEnter = adcCountFromVoltage(CRITICAL_PA6_V);
+  const uint16_t criticalExit = adcCountFromVoltage(CRITICAL_PA6_V + CRITICAL_HYSTERESIS_V);
+
+  // Start with the current state and only change when the corresponding
+  // enter/exit thresholds are crossed.
+  switch (ledState) {
+    case LED_STATE_OK:
+      if (adcValue <= criticalEnter) {
+        return LED_STATE_CRITICAL;
+      }
+      if (adcValue <= warningEnter) {
+        return LED_STATE_WARNING;
+      }
+      return LED_STATE_OK;
+
+    case LED_STATE_WARNING:
+      if (adcValue <= criticalEnter) {
+        return LED_STATE_CRITICAL;
+      }
+      if (adcValue >= warningExit) {
+        return LED_STATE_OK;
+      }
+      return LED_STATE_WARNING;
+
+    case LED_STATE_CRITICAL:
+      if (adcValue >= criticalExit) {
+        if (adcValue <= warningEnter) {
+          return LED_STATE_WARNING;
+        }
+        return LED_STATE_OK;
+      }
+      return LED_STATE_CRITICAL;
+  }
+
+  return LED_STATE_OK;
 }
 
 void setup() {
@@ -68,44 +111,50 @@ void setup() {
 
 void loop() {
   const uint16_t adcValue = analogRead(PIN_BAT_SENSE);
-  const uint16_t lowThreshold = batteryThresholdAdcCount();
+  const LedState targetState = classifyTargetState(adcValue);
 
   // Conservative state update with sample confirmation
-  if (adcValue < lowThreshold) {
-    if (lowCount < LOW_BAT_CONFIRM_SAMPLES) {
-      lowCount++;
+  if (targetState != ledState) {
+    if (pendingCount < STATE_CONFIRM_SAMPLES) {
+      pendingCount++;
     }
-    okCount = 0;
-    if (lowCount >= LOW_BAT_CONFIRM_SAMPLES) {
-      lowBatteryActive = true;
+    if (pendingCount >= STATE_CONFIRM_SAMPLES) {
+      ledState = targetState;
+      pendingCount = 0;
+
+      // Reset warning blink phase on entry for deterministic behavior
+      if (ledState == LED_STATE_WARNING) {
+        warningOnPhase = true;
+        lastToggleMs = millis();
+      }
     }
   } else {
-    if (okCount < OK_BAT_CONFIRM_SAMPLES) {
-      okCount++;
-    }
-    lowCount = 0;
-    if (okCount >= OK_BAT_CONFIRM_SAMPLES) {
-      lowBatteryActive = false;
-    }
+    pendingCount = 0;
   }
 
-  if (!lowBatteryActive) {
-    // Battery is OK -> LED off
+  if (ledState == LED_STATE_OK) {
     setLedBrightness(0);
-    blinkOnPhase = false;
-    lastBlinkMs = millis();
+    warningOnPhase = false;
+    lastToggleMs = millis();
     return;
   }
 
-  // Low battery -> PWM blink
-  const unsigned long now = millis();
-  if (now - lastBlinkMs >= BLINK_PERIOD_MS) {
-    lastBlinkMs = now;
-    blinkOnPhase = !blinkOnPhase;
+  if (ledState == LED_STATE_CRITICAL) {
+    setLedBrightness(255); // Solid ON
+    warningOnPhase = false;
+    lastToggleMs = millis();
+    return;
   }
 
-  if (blinkOnPhase) {
-    setLedBrightness(LED_ON_BRIGHTNESS);
+  // Warning state: PWM pulse every 2 seconds (2 s ON, 2 s OFF)
+  const unsigned long now = millis();
+  if (now - lastToggleMs >= WARNING_TOGGLE_MS) {
+    lastToggleMs = now;
+    warningOnPhase = !warningOnPhase;
+  }
+
+  if (warningOnPhase) {
+    setLedBrightness(LED_PWM_BRIGHTNESS);
   } else {
     setLedBrightness(0);
   }
