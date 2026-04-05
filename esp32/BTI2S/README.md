@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.7.0
+0.8.0
 
 ## Summary
 
@@ -42,6 +42,8 @@ Arduino sketch for ESP32 that:
   - baud: `115200`
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
+  - `bat?` prints latest battery voltage/percent (and BLE report state)
+  - `blebat=on|off` toggles BLE battery percentage notifications at runtime
   - Requested volume above the cap is safely clamped before being applied to the A2DP sink.
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
@@ -49,7 +51,7 @@ Arduino sketch for ESP32 that:
 - Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
 - Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
 - Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
-- Optional BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE` and defaults OFF to avoid affecting proven A2DP behavior.
+- BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
 
 ## External library
 

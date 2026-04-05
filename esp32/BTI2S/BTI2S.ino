@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.7.0
+// Version: 0.8.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -66,9 +66,10 @@ static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;       // Simple analogRea
 static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
 static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f; // Lower = steadier, slower updates.
 
-// Keep disabled by default to avoid impacting known-good Bluetooth audio behavior.
-// If enabled, this advertises a separate BLE Battery Service (0x180F).
-static constexpr bool ENABLE_BLE_BATTERY_SERVICE = false;
+// BLE Battery Service support.
+// Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
+static constexpr bool ENABLE_BLE_BATTERY_SERVICE = true;
+static constexpr bool BLE_BATTERY_REPORT_DEFAULT_ENABLED = true;
 
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
@@ -124,6 +125,7 @@ static float gBatteryFilteredPercent = 0.0f;
 static int gBatteryPercent = 0;
 static bool gBatteryInitialized = false;
 static unsigned long gLastBatteryPollMs = 0;
+static bool gBleBatteryReportingEnabled = BLE_BATTERY_REPORT_DEFAULT_ENABLED;
 
 #if ENABLE_BLE_BATTERY_SERVICE
 static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
@@ -248,7 +250,9 @@ static void batteryPoll() {
   gBatteryPercent = constrain(static_cast<int>(gBatteryFilteredPercent + 0.5f), 0, 100);
 
 #if ENABLE_BLE_BATTERY_SERVICE
-  batteryBleUpdatePercent(static_cast<uint8_t>(gBatteryPercent));
+  if (gBleBatteryReportingEnabled) {
+    batteryBleUpdatePercent(static_cast<uint8_t>(gBatteryPercent));
+  }
 #endif
 
   if (ENABLE_SERIAL_DEBUG && ENABLE_BATTERY_DEBUG) {
@@ -263,6 +267,20 @@ static float batteryGetVoltage() {
 static int batteryGetPercent() {
   return gBatteryPercent;
 }
+
+#if ENABLE_BLE_BATTERY_SERVICE
+static bool parseOnOffValue(const String &text, bool &outValue) {
+  if (text.equalsIgnoreCase("on") || text.equalsIgnoreCase("1") || text.equalsIgnoreCase("true")) {
+    outValue = true;
+    return true;
+  }
+  if (text.equalsIgnoreCase("off") || text.equalsIgnoreCase("0") || text.equalsIgnoreCase("false")) {
+    outValue = false;
+    return true;
+  }
+  return false;
+}
+#endif
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -501,6 +519,34 @@ static void handleSerialCommands() {
     return;
   }
 
+#if ENABLE_BLE_BATTERY_SERVICE
+  if (line.startsWith("blebat=")) {
+    String value = line.substring(7);
+    value.trim();
+    bool newState = gBleBatteryReportingEnabled;
+    if (!parseOnOffValue(value, newState)) {
+      Serial.println("Invalid blebat value. Use: blebat=on|off");
+      return;
+    }
+
+    gBleBatteryReportingEnabled = newState;
+    if (gBleBatteryReportingEnabled) {
+      batteryBleUpdatePercent(static_cast<uint8_t>(batteryGetPercent()));
+    }
+    Serial.printf("BLE battery reporting: %s\n", gBleBatteryReportingEnabled ? "ON" : "OFF");
+    return;
+  }
+#endif
+
+  if (line.equalsIgnoreCase("bat?")) {
+    Serial.printf("BAT %.2fV %d%%", batteryGetVoltage(), batteryGetPercent());
+#if ENABLE_BLE_BATTERY_SERVICE
+    Serial.printf(" BLE:%s", gBleBatteryReportingEnabled ? "ON" : "OFF");
+#endif
+    Serial.println();
+    return;
+  }
+
   if (line.startsWith("name=")) {
     String requestedName = line.substring(5);
     requestedName.trim();
@@ -517,7 +563,7 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
+  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | blebat=on|off");
 }
 
 
@@ -594,11 +640,12 @@ void setup() {
     Serial.printf("Battery ADC -> PIN:%d Rtop:%.0f Rbottom:%.0f\n", BATTERY_ADC_PIN, BATTERY_R_TOP_OHMS, BATTERY_R_BOTTOM_OHMS);
     Serial.printf("Battery status -> %.2fV %d%%\n", batteryGetVoltage(), batteryGetPercent());
 #if ENABLE_BLE_BATTERY_SERVICE
-    Serial.println("Battery BLE service enabled (0x180F/0x2A19).");
+    Serial.printf("Battery BLE service enabled (0x180F/0x2A19), reporting %s. Toggle: blebat=on|off\n",
+                  gBleBatteryReportingEnabled ? "ON" : "OFF");
 #else
     Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
 #endif
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | blebat=on|off");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
