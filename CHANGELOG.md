@@ -4,6 +4,12 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Changed
+- `esp32/BTI2S` removes rotary encoder support from firmware and documentation
+- `esp32/BTI2S` adds user-settable output cap commands (`cap=0..100`, `cap?`) with NVS persistence
+- `esp32/BTI2S` now applies output cap in PCM/I2S path so Bluetooth source volume can still be used up to max while output remains clipped-safe
+- `esp32/BTI2S` version bumped to `0.7.0`
+
 ### Fixed
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
 - `attiny/1616/PreAmpv2` scopes debug-only LCD helper functions behind `PREAMPV2_LCD_DEBUG` to avoid unused-function warnings

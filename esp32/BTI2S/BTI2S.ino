@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.5.1
+// Version: 0.7.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -10,11 +10,12 @@
   - Receives Bluetooth A2DP audio from a phone/computer.
   - Sends audio out over I2S (no MCLK) on fixed pins.
   - Bluetooth device name can be changed and stored in NVS via Serial command.
-  - Rotary encoder controls output volume and mute.
+  - Audio output can be capped in firmware to reduce downstream DAC clipping.
 
   Serial usage (115200 baud):
   - name=YourNewName  -> store BT name and reboot
-  - vol=0..100        -> set volume percent immediately (and unmute)
+  - cap=0..100        -> set output cap percent (stored in NVS)
+  - cap?              -> print active output cap percent
 */
 
 #include <Arduino.h>
@@ -30,33 +31,26 @@ static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
 static constexpr int I2S_DATA_PIN = 13;   // IO13 -> I2S DATA OUT
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
-static constexpr int ENC_SW_PIN = 35;     // IO35 -> encoder switch (input-only pin, external pull-up expected)
-static constexpr int ENC_A_PIN = 32;      // IO32 -> encoder channel A
-static constexpr int ENC_B_PIN = 33;      // IO33 -> encoder channel B
-
 // ------------------------------
 // Startup/output behaviour
 // ------------------------------
-static constexpr unsigned long STARTUP_MUTE_HOLD_MS = 40;    // Hold I2S lines low at boot to reduce startup pops
-static constexpr uint8_t DEFAULT_VOLUME_PERCENT = 70;         // Initial playback level after boot
-static constexpr uint8_t VOLUME_STEP_PERCENT = 2;             // Encoder step size
-static constexpr uint8_t MIN_VOLUME_PERCENT = 0;              // Minimum allowed volume
-static constexpr uint8_t MAX_VOLUME_PERCENT = 100;            // Maximum allowed volume
-static constexpr unsigned long SWITCH_DEBOUNCE_MS = 30;       // Debounce for encoder button
+static constexpr unsigned long STARTUP_MUTE_HOLD_MS = 40;   // Hold I2S lines low at boot to reduce startup pops
+static constexpr uint8_t MIN_PERCENT = 0;                   // Minimum valid percentage
+static constexpr uint8_t MAX_PERCENT = 100;                 // Maximum valid percentage
+static constexpr uint8_t DEFAULT_OUTPUT_CAP_PERCENT = 85;   // Default output cap to reduce downstream DAC clipping
 
 // ------------------------------
-// Bluetooth naming configuration
+// Bluetooth naming/cap configuration
 // ------------------------------
-static constexpr char PREF_NAMESPACE[] = "bti2s";      // NVS namespace
-static constexpr char PREF_KEY_BT_NAME[] = "bt_name"; // NVS key for device name
-static constexpr char DEFAULT_BT_NAME[] = "BTI2S";    // Used when no saved name exists
-static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-readable name limit
+static constexpr char PREF_NAMESPACE[] = "bti2s";          // NVS namespace
+static constexpr char PREF_KEY_BT_NAME[] = "bt_name";      // NVS key for Bluetooth name
+static constexpr char PREF_KEY_OUTPUT_CAP[] = "out_cap";   // NVS key for output cap percent
+static constexpr char DEFAULT_BT_NAME[] = "BTI2S";         // Used when no saved name exists
+static constexpr size_t MAX_BT_NAME_LEN = 24;               // Conservative human-readable name limit
 
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
-// Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
-static constexpr bool ENABLE_ENCODER_CONTROLS = false;
 static bool i2sInitialized = false;
 
 static BluetoothA2DPSink &getA2DPSink() {
@@ -66,14 +60,7 @@ static BluetoothA2DPSink &getA2DPSink() {
 
 Preferences preferences;
 String btDeviceName;
-
-uint8_t volumePercent = DEFAULT_VOLUME_PERCENT;
-bool isMuted = false;
-uint8_t lastEncoderAB = 0;
-bool lastSwitchReading = true;
-bool stableSwitchState = true;
-unsigned long lastSwitchChangeAtMs = 0;
-
+uint8_t outputCapPercent = DEFAULT_OUTPUT_CAP_PERCENT;
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -121,12 +108,57 @@ static bool initI2SOutput() {
   return true;
 }
 
+static int16_t applyGainPercentToSample(int16_t sample, uint8_t gainPercent) {
+  int32_t scaled = (static_cast<int32_t>(sample) * static_cast<int32_t>(gainPercent)) / MAX_PERCENT;
+  if (scaled > 32767) {
+    scaled = 32767;
+  } else if (scaled < -32768) {
+    scaled = -32768;
+  }
+  return static_cast<int16_t>(scaled);
+}
+
+static void writeCappedAudio(const uint8_t *data, uint32_t len) {
+  static constexpr size_t PROCESS_CHUNK_BYTES = 256;
+  int16_t sampleBuffer[PROCESS_CHUNK_BYTES / sizeof(int16_t)];
+
+  const uint8_t *cursor = data;
+  uint32_t remaining = len;
+
+  while (remaining > 0) {
+    uint32_t chunkLen = remaining > PROCESS_CHUNK_BYTES ? PROCESS_CHUNK_BYTES : remaining;
+
+    if (outputCapPercent >= MAX_PERCENT) {
+      size_t bytesWritten = 0;
+      i2s_write(I2S_PORT, cursor, chunkLen, &bytesWritten, portMAX_DELAY);
+    } else {
+      uint32_t evenBytes = chunkLen & ~1U;
+      uint32_t sampleCount = evenBytes / sizeof(int16_t);
+
+      const int16_t *srcSamples = reinterpret_cast<const int16_t *>(cursor);
+      for (uint32_t i = 0; i < sampleCount; ++i) {
+        sampleBuffer[i] = applyGainPercentToSample(srcSamples[i], outputCapPercent);
+      }
+
+      size_t bytesWritten = 0;
+      i2s_write(I2S_PORT, sampleBuffer, evenBytes, &bytesWritten, portMAX_DELAY);
+
+      // For safety if odd byte is ever received, pass it through unchanged.
+      if ((chunkLen & 1U) != 0U) {
+        i2s_write(I2S_PORT, cursor + evenBytes, 1, &bytesWritten, portMAX_DELAY);
+      }
+    }
+
+    cursor += chunkLen;
+    remaining -= chunkLen;
+  }
+}
+
 static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
   if (!i2sInitialized || data == nullptr || len == 0) {
     return;
   }
-  size_t bytesWritten = 0;
-  i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+  writeCappedAudio(data, len);
 }
 
 static void i2sSampleRateCallback(uint16_t rate) {
@@ -136,91 +168,6 @@ static void i2sSampleRateCallback(uint16_t rate) {
   i2s_set_clk(I2S_PORT, rate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("I2S sample rate set: %u Hz\n", static_cast<unsigned>(rate));
-  }
-}
-
-static void configureEncoderPins() {
-  pinMode(ENC_A_PIN, INPUT_PULLUP);
-  pinMode(ENC_B_PIN, INPUT_PULLUP);
-  pinMode(ENC_SW_PIN, INPUT);
-
-  uint8_t a = static_cast<uint8_t>(digitalRead(ENC_A_PIN));
-  uint8_t b = static_cast<uint8_t>(digitalRead(ENC_B_PIN));
-  lastEncoderAB = static_cast<uint8_t>((a << 1U) | b);
-
-  lastSwitchReading = (digitalRead(ENC_SW_PIN) == LOW);
-  stableSwitchState = lastSwitchReading;
-}
-
-static void applyOutputVolume() {
-  uint8_t appliedVolumePercent = isMuted ? 0 : volumePercent;
-  getA2DPSink().set_volume(appliedVolumePercent);
-
-  if (ENABLE_SERIAL_DEBUG) {
-    Serial.printf("Volume: %u%%  Mute: %s\n", static_cast<unsigned>(volumePercent), isMuted ? "ON" : "OFF");
-  }
-}
-
-static int8_t readEncoderDelta() {
-  static constexpr int8_t TRANSITIONS[16] = {
-      0, -1, 1, 0,
-      1, 0, 0, -1,
-      -1, 0, 0, 1,
-      0, 1, -1, 0,
-  };
-
-  uint8_t a = static_cast<uint8_t>(digitalRead(ENC_A_PIN));
-  uint8_t b = static_cast<uint8_t>(digitalRead(ENC_B_PIN));
-  uint8_t currentAB = static_cast<uint8_t>((a << 1U) | b);
-  uint8_t index = static_cast<uint8_t>((lastEncoderAB << 2U) | currentAB);
-  lastEncoderAB = currentAB;
-  return TRANSITIONS[index];
-}
-
-static void handleEncoderControls() {
-  static int8_t encoderAccumulator = 0;
-
-  int8_t delta = readEncoderDelta();
-  if (delta != 0) {
-    encoderAccumulator = static_cast<int8_t>(encoderAccumulator + delta);
-
-    if (encoderAccumulator >= 4) {
-      encoderAccumulator = 0;
-      if (volumePercent <= (MAX_VOLUME_PERCENT - VOLUME_STEP_PERCENT)) {
-        volumePercent = static_cast<uint8_t>(volumePercent + VOLUME_STEP_PERCENT);
-      } else {
-        volumePercent = MAX_VOLUME_PERCENT;
-      }
-      if (isMuted) {
-        isMuted = false;
-      }
-      applyOutputVolume();
-    } else if (encoderAccumulator <= -4) {
-      encoderAccumulator = 0;
-      if (volumePercent >= (MIN_VOLUME_PERCENT + VOLUME_STEP_PERCENT)) {
-        volumePercent = static_cast<uint8_t>(volumePercent - VOLUME_STEP_PERCENT);
-      } else {
-        volumePercent = MIN_VOLUME_PERCENT;
-      }
-      if (isMuted) {
-        isMuted = false;
-      }
-      applyOutputVolume();
-    }
-  }
-
-  bool switchPressed = (digitalRead(ENC_SW_PIN) == LOW);
-  if (switchPressed != lastSwitchReading) {
-    lastSwitchReading = switchPressed;
-    lastSwitchChangeAtMs = millis();
-  }
-
-  if ((millis() - lastSwitchChangeAtMs) >= SWITCH_DEBOUNCE_MS && stableSwitchState != switchPressed) {
-    stableSwitchState = switchPressed;
-    if (stableSwitchState) {
-      isMuted = !isMuted;
-      applyOutputVolume();
-    }
   }
 }
 
@@ -253,18 +200,43 @@ static bool saveBluetoothName(const String &newName) {
   return ok;
 }
 
+static uint8_t clampPercent(uint8_t value) {
+  if (value > MAX_PERCENT) {
+    return MAX_PERCENT;
+  }
+  return value;
+}
 
-static bool parseVolumePercent(const String &line, uint8_t &outVolume) {
-  String valueText;
+static uint8_t getStoredOutputCapPercent() {
+  preferences.begin(PREF_NAMESPACE, true);
+  uint32_t rawCap = preferences.getUInt(PREF_KEY_OUTPUT_CAP, DEFAULT_OUTPUT_CAP_PERCENT);
+  preferences.end();
+  if (rawCap > MAX_PERCENT) {
+    return DEFAULT_OUTPUT_CAP_PERCENT;
+  }
+  return static_cast<uint8_t>(rawCap);
+}
 
-  if (line.startsWith("vol=")) {
-    valueText = line.substring(4);
-  } else if (line.startsWith("volume=")) {
-    valueText = line.substring(7);
-  } else {
+static bool saveOutputCapPercent(uint8_t newCapPercent) {
+  uint8_t cleanCap = clampPercent(newCapPercent);
+
+  preferences.begin(PREF_NAMESPACE, false);
+  bool ok = preferences.putUInt(PREF_KEY_OUTPUT_CAP, static_cast<uint32_t>(cleanCap)) > 0;
+  preferences.end();
+
+  if (ok) {
+    outputCapPercent = cleanCap;
+  }
+
+  return ok;
+}
+
+static bool parsePercentValue(const String &line, const char *prefix, uint8_t &outPercent) {
+  if (!line.startsWith(prefix)) {
     return false;
   }
 
+  String valueText = line.substring(strlen(prefix));
   valueText.trim();
   if (valueText.isEmpty()) {
     return false;
@@ -277,11 +249,11 @@ static bool parseVolumePercent(const String &line, uint8_t &outVolume) {
   }
 
   long parsed = valueText.toInt();
-  if (parsed < MIN_VOLUME_PERCENT || parsed > MAX_VOLUME_PERCENT) {
+  if (parsed < MIN_PERCENT || parsed > MAX_PERCENT) {
     return false;
   }
 
-  outVolume = static_cast<uint8_t>(parsed);
+  outPercent = static_cast<uint8_t>(parsed);
   return true;
 }
 
@@ -293,12 +265,18 @@ static void handleSerialCommands() {
   String line = Serial.readStringUntil('\n');
   line.trim();
 
-  uint8_t requestedVolume = 0;
-  if (parseVolumePercent(line, requestedVolume)) {
-    volumePercent = requestedVolume;
-    isMuted = false;
-    applyOutputVolume();
-    Serial.printf("Volume set to %u%%\n", static_cast<unsigned>(volumePercent));
+  if (line.equalsIgnoreCase("cap?")) {
+    Serial.printf("Output cap: %u%%\n", static_cast<unsigned>(outputCapPercent));
+    return;
+  }
+
+  uint8_t requestedCap = 0;
+  if (parsePercentValue(line, "cap=", requestedCap)) {
+    if (saveOutputCapPercent(requestedCap)) {
+      Serial.printf("Output cap saved/applied: %u%%\n", static_cast<unsigned>(outputCapPercent));
+    } else {
+      Serial.println("Failed to save output cap to NVS.");
+    }
     return;
   }
 
@@ -318,9 +296,8 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName or vol=0..100");
+  Serial.println("Unknown command. Use: name=YourNewName | cap=0..100 | cap?");
 }
-
 
 static void onConnectionStateChanged(esp_a2d_connection_state_t state, void * /*ptr*/) {
   if (!ENABLE_SERIAL_DEBUG) {
@@ -356,14 +333,10 @@ void setup() {
 
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: load BT name from NVS");
   btDeviceName = getStoredBluetoothName();
+  outputCapPercent = getStoredOutputCapPercent();
+
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: apply startup mute state");
   applyStartupMuteState();
-  if (ENABLE_ENCODER_CONTROLS) {
-    if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init encoder pins");
-    configureEncoderPins();
-  } else if (ENABLE_SERIAL_DEBUG) {
-    Serial.println("setup: encoder controls disabled (serial volume mode)");
-  }
 
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
@@ -380,23 +353,23 @@ void setup() {
   a2dpSink.set_stream_reader(i2sAudioDataCallback, false);
   a2dpSink.set_sample_rate_callback(i2sSampleRateCallback);
   a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
+
+  // Leave A2DP sink volume at 100% so Bluetooth source controls still reach full range.
+  a2dpSink.set_volume(MAX_PERCENT);
+
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
   a2dpSink.start(btDeviceName.c_str());
-  applyOutputVolume();
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
-    Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
+    Serial.printf("Output cap: %u%%\n", static_cast<unsigned>(outputCapPercent));
+    Serial.println("Ready. Commands: name=YourNewName | cap=0..100 | cap?");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
 
 void loop() {
-  if (ENABLE_ENCODER_CONTROLS) {
-    handleEncoderControls();
-  }
   handleSerialCommands();
   delay(2);
 }
