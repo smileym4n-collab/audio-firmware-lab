@@ -5,6 +5,11 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Changed
+- `esp32/BTI2S` adds a stability-first source-mode architecture note: Bluetooth remains the default Arduino path and AirPlay is documented as a separate ESP-IDF firmware path
+- `esp32/BTI2S` adds explicit compile-time source mode constants and blocks unsupported in-sketch AirPlay mode to avoid fragile mixed-stack behavior
+- `esp32/BTI2S` version bumped to `0.7.0`
+- `esp32/BTI2S` changes `AUDIO_SOURCE_MODE_AIRPLAY` from compile-time hard stop to a conservative startup hook with automatic Bluetooth fallback
+- `esp32/BTI2S` version bumped to `0.7.1`
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
 

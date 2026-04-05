@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.6.0
+// Version: 0.7.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -22,6 +22,27 @@
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
 #include <driver/i2s.h>
+
+// ------------------------------
+// Audio source mode selection
+// ------------------------------
+// Keep Bluetooth as the default because it is known-good in this project.
+// AirPlay is staged as a conservative integration point in this sketch:
+// - shared I2S output path is already in place
+// - Bluetooth remains the default and known-good source
+// - AirPlay mode currently falls back to Bluetooth unless a real AirPlay
+//   backend is wired in at startAirPlaySource()
+//
+// Modes:
+//   AUDIO_SOURCE_MODE_BLUETOOTH -> existing stable A2DP sink path (default)
+//   AUDIO_SOURCE_MODE_AIRPLAY    -> initialization hook + safe Bluetooth fallback
+#define AUDIO_SOURCE_MODE_BLUETOOTH 1
+#define AUDIO_SOURCE_MODE_AIRPLAY 2
+
+#ifndef AUDIO_SOURCE_MODE
+#define AUDIO_SOURCE_MODE AUDIO_SOURCE_MODE_BLUETOOTH
+#endif
+
 
 // ------------------------------
 // Pin map (fixed by project requirements)
@@ -123,6 +144,8 @@ static bool initI2SOutput() {
   return true;
 }
 
+// Shared I2S output path: Bluetooth PCM callback writes directly to the same I2S driver
+// used by this project's DAC output pins.
 static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
   if (!i2sInitialized || data == nullptr || len == 0) {
     return;
@@ -358,12 +381,41 @@ static void onConnectionStateChanged(esp_a2d_connection_state_t state, void * /*
   }
 }
 
+// Bluetooth source path:
+// A2DP source -> ESP32 A2DP decoder -> i2sAudioDataCallback() -> shared I2S output
+static void startBluetoothSource() {
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
+  BluetoothA2DPSink &a2dpSink = getA2DPSink();
+  // Bluetooth audio path: A2DP decoder -> PCM callback -> shared I2S output
+  a2dpSink.set_stream_reader(i2sAudioDataCallback, false);
+  a2dpSink.set_sample_rate_callback(i2sSampleRateCallback);
+  a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
+  a2dpSink.start(btDeviceName.c_str());
+  applyOutputVolume();
+}
+
+// AirPlay source hook:
+// Intended future path: AirPlay/RAOP receiver -> PCM callback -> shared I2S output.
+// Conservative behavior for now: if not integrated, return false and let caller
+// fall back to Bluetooth automatically.
+static bool startAirPlaySource() {
+  if (ENABLE_SERIAL_DEBUG) {
+    Serial.println("setup: AirPlay mode selected");
+    Serial.println("setup: no AirPlay backend linked in this sketch yet; falling back to Bluetooth");
+  }
+  return false;
+}
+
 void setup() {
+  // Mode initialization: select source mode, then bind selected source to shared I2S path.
   if (ENABLE_SERIAL_DEBUG) {
     Serial.begin(115200);
     delay(150);
     Serial.println();
     Serial.println("BTI2S startup");
+    Serial.printf("Audio source mode requested: %s\n",
+                  (AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY) ? "AirPlay" : "Bluetooth");
   }
 
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: load BT name from NVS");
@@ -377,9 +429,6 @@ void setup() {
     Serial.println("setup: encoder controls disabled (serial volume mode)");
   }
 
-  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
-  BluetoothA2DPSink &a2dpSink = getA2DPSink();
-
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init explicit I2S output");
   if (!initI2SOutput()) {
     if (ENABLE_SERIAL_DEBUG) {
@@ -389,12 +438,13 @@ void setup() {
     ESP.restart();
   }
 
-  a2dpSink.set_stream_reader(i2sAudioDataCallback, false);
-  a2dpSink.set_sample_rate_callback(i2sSampleRateCallback);
-  a2dpSink.set_on_connection_state_changed(onConnectionStateChanged);
-  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: start A2DP sink");
-  a2dpSink.start(btDeviceName.c_str());
-  applyOutputVolume();
+  bool sourceStarted = false;
+#if AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY
+  sourceStarted = startAirPlaySource();
+#endif
+  if (!sourceStarted) {
+    startBluetoothSource();
+  }
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
