@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.5.1
+// Version: 0.6.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -15,6 +15,7 @@
   Serial usage (115200 baud):
   - name=YourNewName  -> store BT name and reboot
   - vol=0..100        -> set volume percent immediately (and unmute)
+  - Firmware volume cap limits max applied output gain (see MAX_OUTPUT_VOLUME_PERCENT).
 */
 
 #include <Arduino.h>
@@ -41,7 +42,8 @@ static constexpr unsigned long STARTUP_MUTE_HOLD_MS = 40;    // Hold I2S lines l
 static constexpr uint8_t DEFAULT_VOLUME_PERCENT = 70;         // Initial playback level after boot
 static constexpr uint8_t VOLUME_STEP_PERCENT = 2;             // Encoder step size
 static constexpr uint8_t MIN_VOLUME_PERCENT = 0;              // Minimum allowed volume
-static constexpr uint8_t MAX_VOLUME_PERCENT = 100;            // Maximum allowed volume
+static constexpr uint8_t MAX_VOLUME_PERCENT = 100;            // Maximum allowed user-set volume
+static constexpr uint8_t MAX_OUTPUT_VOLUME_PERCENT = 85;      // Firmware output cap to reduce downstream DAC clipping
 static constexpr unsigned long SWITCH_DEBOUNCE_MS = 30;       // Debounce for encoder button
 
 // ------------------------------
@@ -153,11 +155,21 @@ static void configureEncoderPins() {
 }
 
 static void applyOutputVolume() {
-  uint8_t appliedVolumePercent = isMuted ? 0 : volumePercent;
+  uint8_t requestedVolumePercent = isMuted ? 0 : volumePercent;
+  uint8_t appliedVolumePercent = requestedVolumePercent;
+  if (appliedVolumePercent > MAX_OUTPUT_VOLUME_PERCENT) {
+    appliedVolumePercent = MAX_OUTPUT_VOLUME_PERCENT;
+  }
+
   getA2DPSink().set_volume(appliedVolumePercent);
 
   if (ENABLE_SERIAL_DEBUG) {
-    Serial.printf("Volume: %u%%  Mute: %s\n", static_cast<unsigned>(volumePercent), isMuted ? "ON" : "OFF");
+    Serial.printf(
+        "Volume requested: %u%%  applied: %u%%  cap: %u%%  Mute: %s\n",
+        static_cast<unsigned>(volumePercent),
+        static_cast<unsigned>(appliedVolumePercent),
+        static_cast<unsigned>(MAX_OUTPUT_VOLUME_PERCENT),
+        isMuted ? "ON" : "OFF");
   }
 }
 
