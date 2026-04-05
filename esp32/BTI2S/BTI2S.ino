@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.7.2
+// Version: 0.8.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -27,22 +27,36 @@
 // Audio source mode selection
 // ------------------------------
 // Keep Bluetooth as the default because it is known-good in this project.
-// AirPlay is staged as a conservative integration point in this sketch:
-// - shared I2S output path is already in place
-// - Bluetooth remains the default and known-good source
-// - AirPlay mode currently falls back to Bluetooth unless a real AirPlay
-//   backend is wired in at startAirPlaySource()
+// Bluetooth remains default (known-good).
+// AirPlay mode now expects a real backend integration based on:
+//   https://github.com/rbouteiller/airplay-esp32
+// If AirPlay mode is selected without backend wiring, build will fail loudly.
 //
 // Modes:
 //   AUDIO_SOURCE_MODE_BLUETOOTH -> existing stable A2DP sink path (default)
-//   AUDIO_SOURCE_MODE_AIRPLAY    -> initialization hook + safe Bluetooth fallback
+//   AUDIO_SOURCE_MODE_AIRPLAY    -> real AirPlay backend path (rbouteiller/airplay-esp32)
 #define AUDIO_SOURCE_MODE_BLUETOOTH 1
 #define AUDIO_SOURCE_MODE_AIRPLAY 2
-// Set true only after wiring a real AirPlay backend into startAirPlaySource().
-static constexpr bool AIRPLAY_BACKEND_ENABLED = false;
+// Enable only when airplay-esp32 backend headers/sources are present in the build.
+static constexpr bool AIRPLAY_BACKEND_ENABLED = true;
 
 #ifndef AUDIO_SOURCE_MODE
 #define AUDIO_SOURCE_MODE AUDIO_SOURCE_MODE_BLUETOOTH
+#endif
+
+#if AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY && !AIRPLAY_BACKEND_ENABLED
+#error "AirPlay mode requires AIRPLAY_BACKEND_ENABLED=true and the rbouteiller/airplay-esp32 backend in the build."
+#endif
+
+#if AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY
+extern "C" {
+#include "audio_output.h"
+#include "audio_receiver.h"
+#include "hap.h"
+#include "mdns_airplay.h"
+#include "ptp_clock.h"
+#include "rtsp_server.h"
+}
 #endif
 
 
@@ -437,23 +451,33 @@ static void startBluetoothSource() {
 
 // AirPlay source hook:
 // Intended future path: AirPlay/RAOP receiver -> PCM callback -> shared I2S output.
-// Conservative behavior for now: if not integrated, return false and let caller
-// fall back to Bluetooth automatically.
+// This path uses rbouteiller/airplay-esp32 backend init calls and is selected
+// only when AUDIO_SOURCE_MODE_AIRPLAY is enabled at compile time.
 static bool startAirPlaySource() {
+#if AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY
   if (ENABLE_SERIAL_DEBUG) {
     Serial.println("setup: AirPlay mode selected");
-    Serial.printf("setup: AIRPLAY_BACKEND_ENABLED=%s\n", AIRPLAY_BACKEND_ENABLED ? "true" : "false");
-    Serial.println("setup: no AirPlay backend linked in this sketch yet; falling back to Bluetooth");
-    Serial.println("setup: to test AirPlay, keep AUDIO_SOURCE_MODE=AUDIO_SOURCE_MODE_AIRPLAY and wire backend code into startAirPlaySource()");
+    Serial.println("setup: initializing airplay-esp32 backend (PTP + HAP + receiver + output + RTSP)");
   }
   activeSourceIsAirPlay = false;
-  if (AIRPLAY_BACKEND_ENABLED) {
-    // Placeholder path for a future real AirPlay backend startup.
-    // Return true when backend has started and is feeding i2sAudioDataCallback().
-    activeSourceIsAirPlay = true;
-    return true;
+
+  esp_err_t err = ptp_clock_init();
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    if (ENABLE_SERIAL_DEBUG) Serial.printf("AirPlay: ptp_clock_init failed: %d\n", static_cast<int>(err));
+    return false;
   }
+  if (hap_init() != ESP_OK) return false;
+  if (audio_receiver_init() != ESP_OK) return false;
+  if (audio_output_init() != ESP_OK) return false;
+  mdns_airplay_init();
+  audio_output_start();
+  if (rtsp_server_start() != ESP_OK) return false;
+  activeSourceIsAirPlay = true;
+  if (ENABLE_SERIAL_DEBUG) Serial.println("AirPlay: backend started");
+  return true;
+#else
   return false;
+#endif
 }
 
 void setup() {
@@ -490,10 +514,17 @@ void setup() {
   bool sourceStarted = false;
 #if AUDIO_SOURCE_MODE == AUDIO_SOURCE_MODE_AIRPLAY
   sourceStarted = startAirPlaySource();
-#endif
   if (!sourceStarted) {
-    startBluetoothSource();
+    if (ENABLE_SERIAL_DEBUG) Serial.println("ERROR: AirPlay start failed");
+    delay(500);
+    ESP.restart();
   }
+#else
+  {
+    startBluetoothSource();
+    sourceStarted = true;
+  }
+#endif
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Active source after setup: %s\n", activeSourceIsAirPlay ? "AirPlay" : "Bluetooth");

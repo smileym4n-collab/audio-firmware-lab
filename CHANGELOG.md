@@ -13,6 +13,9 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` adds `status` serial diagnostics and periodic audio-flow debug logs to help confirm active source and I2S PCM activity
 - `esp32/BTI2S` clarifies AirPlay startup requirements (`AUDIO_SOURCE_MODE` + `AIRPLAY_BACKEND_ENABLED` + backend wiring in `startAirPlaySource()`)
 - `esp32/BTI2S` version bumped to `0.7.2`
+- `esp32/BTI2S` replaces AirPlay placeholder with real `rbouteiller/airplay-esp32` backend init path (`ptp_clock_init`, `hap_init`, `audio_receiver_init`, `audio_output_init`, `mdns_airplay_init`, `rtsp_server_start`)
+- `esp32/BTI2S` changes AirPlay mode behavior to fail/reboot on backend start failure instead of fallback-to-Bluetooth
+- `esp32/BTI2S` version bumped to `0.8.0`
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
 

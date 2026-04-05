@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.7.2
+0.8.0
 
 ## Summary
 
@@ -58,36 +58,32 @@ This project now also documents a **smallest-viable AirPlay path** while preserv
   - I2S out (`IO26/IO25/IO13`) -> your existing DAC/amplifier chain
 - This path is intentionally kept as the primary, known-good behavior.
 
-## AirPlay mode (minimal integration stage)
+## AirPlay mode (real backend integration)
 
 ### Important architectural note
 
-In this codebase, AirPlay is added as a **conservative integration point**:
-- `AUDIO_SOURCE_MODE_AIRPLAY` exists and initializes an AirPlay startup hook.
-- If no AirPlay backend is linked yet, startup safely falls back to Bluetooth so existing playback still works.
+In this codebase, AirPlay mode now uses a **real backend initialization path** based on `rbouteiller/airplay-esp32` (PTP clock, HAP init, audio receiver/output init, mDNS AirPlay announce, RTSP server start).
 
 Reason:
 - For ESP32, mature AirPlay receiver implementations are typically ESP-IDF-based and significantly different from Arduino A2DP-sink sketches.
 - This staged approach keeps your known-good Bluetooth path live while creating a clear insertion point for a proven AirPlay backend.
 
 
-### Why AirPlay does not start yet
+### AirPlay mode requirements
 
-If you set `AUDIO_SOURCE_MODE` to `AUDIO_SOURCE_MODE_AIRPLAY` today, startup still falls back to Bluetooth unless `AIRPLAY_BACKEND_ENABLED` is set to `true` **and** `startAirPlaySource()` is implemented with a real AirPlay receiver backend.
+AirPlay mode (`AUDIO_SOURCE_MODE_AIRPLAY`) now attempts to start backend services directly and will reboot on failure instead of silently falling back to Bluetooth.
+
+Required backend dependency in build:
+- `rbouteiller/airplay-esp32` sources/components providing:
+  - `ptp_clock_init`, `hap_init`, `audio_receiver_init`, `audio_output_init`, `audio_output_start`, `mdns_airplay_init`, `rtsp_server_start`
 
 For debugging over Serial (115200):
-- `status` prints requested mode, active mode, AirPlay backend flag, and I2S sample-rate state
-- periodic `Audio flow: ...` lines show whether PCM is actually reaching I2S
+- `status` prints requested mode, active mode, backend flag, and I2S sample-rate state
+- `Audio flow: ...` lines show whether PCM is reaching I2S
 
-### Recommended practical approach for full AirPlay
+### Practical build note
 
-Use two firmware targets on the same hardware/I2S pin map:
-1. **Bluetooth firmware** (this Arduino sketch, unchanged path)
-2. **AirPlay firmware** (ESP-IDF AirPlay-capable project, configured for the same I2S pins)
-
-This gives reliable operation with a simple “flash desired mode” workflow, instead of fragile simultaneous multi-stack runtime behavior.
-
-If you want one-button mode switching later, add a small boot-selector strategy (NVS flag + OTA partitions), but that is intentionally out-of-scope for this minimal stability-first change.
+Because `rbouteiller/airplay-esp32` is ESP-IDF-oriented, AirPlay mode in this sketch is realistically built in an Arduino+ESP-IDF capable workflow (for example PlatformIO with appropriate component/source integration), not plain Arduino IDE alone.
 
 ## External libraries / dependencies
 
@@ -98,10 +94,10 @@ Install this Arduino library:
 
 `Preferences` and `driver/i2s.h` are provided by ESP32 Arduino core.
 
-### AirPlay dependencies (when enabling real AirPlay backend)
+### AirPlay dependencies (required for AirPlay mode)
 
-- Use an ESP-IDF AirPlay-capable project or backend (RAOP/AirPlay receiver implementation)
-- Connect that backend to the sketch's shared PCM/I2S path (`startAirPlaySource()` in `BTI2S.ino`)
+- `rbouteiller/airplay-esp32` backend sources/components available to the build
+- The sketch's `startAirPlaySource()` calls backend init/start functions directly
 - Keep I2S output pins:
   - BCK: `IO26`
   - LRCK: `IO25`
@@ -116,17 +112,17 @@ Install this Arduino library:
 3. Install `ESP32-A2DP`.
 4. Build and flash.
 
-### AirPlay mode (recommended separate ESP-IDF firmware)
+### AirPlay mode
 
-1. Open chosen ESP-IDF AirPlay project.
-2. Set Wi-Fi credentials and device name in that project.
-3. Set I2S pins to match this hardware (`26/25/13`).
-4. Build/flash with `idf.py`.
+1. Set `AUDIO_SOURCE_MODE` to `AUDIO_SOURCE_MODE_AIRPLAY`.
+2. Ensure `rbouteiller/airplay-esp32` backend headers/sources are present in your build environment.
+3. Build with an ESP-IDF-capable workflow that can resolve those backend symbols.
+4. Flash and monitor serial logs for backend init status.
 
 ## Limitations
 
 - This sketch does not run Bluetooth + AirPlay simultaneously.
-- In the current stage, AirPlay mode is a startup hook with safe Bluetooth fallback until a real AirPlay backend is linked.
+- AirPlay mode no longer falls back to Bluetooth automatically; it requires backend startup success.
 - AirPlay backend selection is intentionally left explicit to avoid silent protocol/stack changes.
 
 ## Assumptions
