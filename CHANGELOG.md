@@ -9,6 +9,7 @@ All notable changes to this repository will be recorded here.
 
 ### Changed
 - `esp32/BTDSP` improves beginner-facing clarity in Bluetooth PCM callback comments, DSP placeholder guidance, and Windows VS Code ESP-IDF setup/flash/monitor README instructions while keeping behavior unchanged
+- `esp32/BTDSP` adds a simple user-set output volume cap (`OUTPUT_VOLUME_CAP_PERCENT`) so Bluetooth source volume still works but peak ESP32 output can be limited to reduce clipping
 
 ### Fixed
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly

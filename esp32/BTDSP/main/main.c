@@ -34,6 +34,9 @@
 
 #define DEVICE_NAME "ESP32-BTDSP"
 #define PCM_WORK_BUFFER_BYTES 4096U
+// User-set safety cap for output amplitude to reduce clipping risk.
+// 100 = no cap, 80 = max output is 80% of full-scale PCM.
+#define OUTPUT_VOLUME_CAP_PERCENT 85U
 
 static uint32_t s_a2dp_sample_rate = 44100;
 static bool s_logged_dsp_mode = false;
@@ -203,6 +206,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Starting BTDSP (Bluetooth PCM -> DSP -> I2S)");
 
     dsp_init();
+    dsp_set_output_cap_percent(OUTPUT_VOLUME_CAP_PERCENT);
+    ESP_LOGI(TAG, "DSP output cap set to %u%%", (unsigned int)dsp_get_output_cap_percent());
     init_i2s();
     init_bluetooth();
 

@@ -7,8 +7,22 @@
 
 #include "dsp.h"
 
+#include <limits.h>
+
 static dsp_peq_settings_t s_left_peq;
 static dsp_peq_settings_t s_right_peq;
+static uint8_t s_output_cap_percent = 100;
+
+static int16_t clamp_int16(int32_t value)
+{
+    if (value > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (value < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)value;
+}
 
 void dsp_init(void)
 {
@@ -36,6 +50,19 @@ void dsp_set_peq(const dsp_peq_settings_t *left, const dsp_peq_settings_t *right
     }
 }
 
+void dsp_set_output_cap_percent(uint8_t cap_percent)
+{
+    if (cap_percent > 100U) {
+        cap_percent = 100U;
+    }
+    s_output_cap_percent = cap_percent;
+}
+
+uint8_t dsp_get_output_cap_percent(void)
+{
+    return s_output_cap_percent;
+}
+
 void dsp_process_stereo_int16(int16_t *interleaved_stereo, uint32_t frame_count)
 {
     // Audio buffer format:
@@ -47,10 +74,16 @@ void dsp_process_stereo_int16(int16_t *interleaved_stereo, uint32_t frame_count)
     //
     // `frame_count` is the number of stereo frames.
     //
-    // Current behavior: bypass all DSP and return unchanged audio.
-    // This keeps the path stable while making extension points explicit.
-    (void)interleaved_stereo;
-    (void)frame_count;
+    // Current behavior:
+    // - apply output volume cap (0..100%)
+    // - no PEQ/shelves/sub filtering yet
+    //
+    // This keeps the signal path simple while adding clipping protection.
+    uint32_t sample_count = frame_count * 2U;
+    for (uint32_t i = 0; i < sample_count; ++i) {
+        int32_t scaled = ((int32_t)interleaved_stereo[i] * (int32_t)s_output_cap_percent) / 100;
+        interleaved_stereo[i] = clamp_int16(scaled);
+    }
 
     // ================= FUTURE DSP IMPLEMENTATION AREA =================
     // 1) PEQ biquad (per channel):
@@ -68,5 +101,5 @@ void dsp_process_stereo_int16(int16_t *interleaved_stereo, uint32_t frame_count)
     //    - Optional mono sum (L+R)/2, then low-pass for sub out path.
     // ==================================================================
 
-    // Pass-through path intentionally does nothing and leaves samples unchanged.
+    // After the cap, audio is still effectively pass-through until new filters are added.
 }

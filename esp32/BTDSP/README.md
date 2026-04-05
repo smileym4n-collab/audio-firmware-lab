@@ -10,6 +10,7 @@ Minimal ESP-IDF project for **ESP32-WROOM-32UE-N4CT** that receives Bluetooth Cl
 - **Pipeline:** `Bluetooth PCM -> DSP stage -> I2S output`
 - **Output:** I2S stereo transmit (master mode)
 - **No Wi-Fi / no UI / no networking extras**
+- **No rotary encoder support in this project**
 
 ## I2S pin map (external DAC)
 
@@ -38,6 +39,18 @@ Key functions:
 - boxiness reduction EQ (start around **350-400 Hz**, about **-3 dB**, **Q ~1.0**)
 - bass / treble shelves
 - subwoofer low-pass
+
+### Output volume cap (anti-clipping safety)
+
+The DSP stage includes a simple output cap that scales PCM samples after Bluetooth volume is applied by the source.
+
+- Set the cap in `main/main.c`:
+  - `#define OUTPUT_VOLUME_CAP_PERCENT 85U`
+- Range is `0..100`.
+  - `100` = no cap (full scale)
+  - `85` = output limited to 85% of full scale
+
+This means you can still control volume from your phone normally, but even at phone max the ESP32 output remains capped to reduce clipping risk.
 
 Future PEQ settings are represented by:
 
@@ -112,4 +125,6 @@ You should see logs indicating:
   - `I2S_DOUT_GPIO`
 - **DSP less-boxy tuning placeholder:** `main/dsp.c` in `dsp_init()` and `dsp_process_stereo_int16()`
   - look for comment: `FUTURE "LESS BOXY" STARTING POINT`
+- **Output volume cap:** `main/main.c`
+  - `OUTPUT_VOLUME_CAP_PERCENT`
 - **Runtime DSP hook usage example:** `main/main.c` near the commented `dsp_set_peq(...)` example in `app_main()`
