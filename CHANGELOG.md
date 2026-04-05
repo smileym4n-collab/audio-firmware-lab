@@ -7,6 +7,9 @@ All notable changes to this repository will be recorded here.
 ### Changed
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
+- `esp32/BTI2S` adds 4S battery monitoring on a configurable ADC pin with resistor-divider scaling, multi-sample averaging, interpolation-based SOC lookup, and smoothed 0..100% reporting
+- `esp32/BTI2S` keeps BLE battery service optional behind a compile-time flag (`ENABLE_BLE_BATTERY_SERVICE`, default OFF) to preserve existing Bluetooth audio behavior
+- `esp32/BTI2S` version bumped to `0.7.0`
 
 ### Fixed
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly

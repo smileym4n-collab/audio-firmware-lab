@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.6.0
+0.7.0
 
 ## Summary
 
@@ -23,6 +23,7 @@ Arduino sketch for ESP32 that:
 - `IO35` -> `ENC-SW` (rotary encoder push switch)
 - `IO32` -> `ENC-A` (rotary encoder channel A)
 - `IO33` -> `ENC-B` (rotary encoder channel B)
+- `IO34` -> `BATTERY_ADC` (4S battery divider monitor input)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
 ## Behaviour
@@ -45,6 +46,10 @@ Arduino sketch for ESP32 that:
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
 - Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
+- Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
+- Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
+- Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
+- Optional BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE` and defaults OFF to avoid affecting proven A2DP behavior.
 
 ## External library
 

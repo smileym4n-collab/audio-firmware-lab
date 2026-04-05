@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.6.0
+// Version: 0.7.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -34,6 +34,7 @@ static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 static constexpr int ENC_SW_PIN = 35;     // IO35 -> encoder switch (input-only pin, external pull-up expected)
 static constexpr int ENC_A_PIN = 32;      // IO32 -> encoder channel A
 static constexpr int ENC_B_PIN = 33;      // IO33 -> encoder channel B
+#define BATTERY_ADC_PIN         34         // IO34 -> battery divider ADC input (input-only pin)
 
 // ------------------------------
 // Startup/output behaviour
@@ -54,12 +55,79 @@ static constexpr char PREF_KEY_BT_NAME[] = "bt_name"; // NVS key for device name
 static constexpr char DEFAULT_BT_NAME[] = "BTI2S";    // Used when no saved name exists
 static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-readable name limit
 
+// ------------------------------
+// Battery monitor configuration (easy-to-edit section)
+// ------------------------------
+#define BATTERY_R_TOP_OHMS      270000.0f
+#define BATTERY_R_BOTTOM_OHMS    47000.0f
+static constexpr uint8_t BATTERY_ADC_SAMPLES = 16;
+static constexpr unsigned long BATTERY_POLL_INTERVAL_MS = 5000;
+static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;       // Simple analogRead scaling assumption.
+static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
+static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f; // Lower = steadier, slower updates.
+
+// Keep disabled by default to avoid impacting known-good Bluetooth audio behavior.
+// If enabled, this advertises a separate BLE Battery Service (0x180F).
+static constexpr bool ENABLE_BLE_BATTERY_SERVICE = false;
+
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
 static constexpr bool ENABLE_SERIAL_DEBUG = true;
+// Set to false to disable battery debug prints while leaving monitor active.
+static constexpr bool ENABLE_BATTERY_DEBUG = true;
 // Set false when no encoder is connected; avoids floating-input noise and unnecessary volume updates.
 static constexpr bool ENABLE_ENCODER_CONTROLS = false;
+
+#if ENABLE_BLE_BATTERY_SERVICE
+#include <BLE2902.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#endif
+
+typedef struct {
+  float pack_voltage;
+  int percent;
+} battery_point_t;
+
+// Estimated 4S Li-ion state-of-charge curve.
+// Loaded battery voltage can sag under heavy bass / high output power.
+// Table is intentionally easy to tune after real-world testing.
+static const battery_point_t battery_curve_4s[] = {
+    {16.80f, 100},
+    {16.60f, 98},
+    {16.40f, 95},
+    {16.20f, 90},
+    {16.00f, 85},
+    {15.80f, 78},
+    {15.60f, 70},
+    {15.40f, 62},
+    {15.20f, 54},
+    {15.00f, 46},
+    {14.80f, 38},
+    {14.60f, 30},
+    {14.40f, 22},
+    {14.20f, 15},
+    {14.00f, 10},
+    {13.80f, 6},
+    {13.60f, 3},
+    {13.20f, 1},
+    {12.00f, 0}
+};
+
+static constexpr size_t BATTERY_CURVE_POINTS = sizeof(battery_curve_4s) / sizeof(battery_curve_4s[0]);
 static bool i2sInitialized = false;
+
+static float gBatteryPinVoltage = 0.0f;
+static float gBatteryPackVoltage = 0.0f;
+static float gBatteryFilteredPercent = 0.0f;
+static int gBatteryPercent = 0;
+static bool gBatteryInitialized = false;
+static unsigned long gLastBatteryPollMs = 0;
+
+#if ENABLE_BLE_BATTERY_SERVICE
+static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
+#endif
 
 static BluetoothA2DPSink &getA2DPSink() {
   static BluetoothA2DPSink sink;
@@ -76,6 +144,125 @@ bool lastSwitchReading = true;
 bool stableSwitchState = true;
 unsigned long lastSwitchChangeAtMs = 0;
 
+static float batteryReadPinVoltage() {
+  uint32_t adcSum = 0;
+  for (uint8_t i = 0; i < BATTERY_ADC_SAMPLES; ++i) {
+    adcSum += static_cast<uint32_t>(analogRead(BATTERY_ADC_PIN));
+    delay(2);
+  }
+
+  const float adcAverage = static_cast<float>(adcSum) / static_cast<float>(BATTERY_ADC_SAMPLES);
+  return (adcAverage / BATTERY_ADC_FULL_SCALE_COUNTS) * BATTERY_ADC_REF_VOLTAGE;
+}
+
+static float batteryPinToPackVoltage(float pinVoltage) {
+  const float dividerRatio = (BATTERY_R_TOP_OHMS + BATTERY_R_BOTTOM_OHMS) / BATTERY_R_BOTTOM_OHMS;
+  return pinVoltage * dividerRatio;
+}
+
+// Lookup + interpolation helper.
+// Input: measured pack voltage. Output: clamped 0..100% estimate.
+static int batteryPercentFromVoltage(float packVoltage) {
+  if (packVoltage >= battery_curve_4s[0].pack_voltage) {
+    return 100;
+  }
+  if (packVoltage <= battery_curve_4s[BATTERY_CURVE_POINTS - 1].pack_voltage) {
+    return 0;
+  }
+
+  for (size_t i = 0; i < (BATTERY_CURVE_POINTS - 1); ++i) {
+    const battery_point_t &high = battery_curve_4s[i];
+    const battery_point_t &low = battery_curve_4s[i + 1];
+
+    if (packVoltage <= high.pack_voltage && packVoltage >= low.pack_voltage) {
+      const float spanV = high.pack_voltage - low.pack_voltage;
+      if (spanV <= 0.0f) {
+        return constrain(high.percent, 0, 100);
+      }
+      const float t = (packVoltage - low.pack_voltage) / spanV;
+      const float interpolated = static_cast<float>(low.percent) + t * static_cast<float>(high.percent - low.percent);
+      return constrain(static_cast<int>(interpolated + 0.5f), 0, 100);
+    }
+  }
+
+  return 0;
+}
+
+#if ENABLE_BLE_BATTERY_SERVICE
+static void batteryBleInit() {
+  BLEDevice::init("BTI2S-Battery");
+  BLEServer *server = BLEDevice::createServer();
+  BLEService *batteryService = server->createService(BLEUUID((uint16_t)0x180F));
+  gBatteryLevelCharacteristic = batteryService->createCharacteristic(
+      BLEUUID((uint16_t)0x2A19), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  gBatteryLevelCharacteristic->addDescriptor(new BLE2902());
+
+  uint8_t initial = 0;
+  gBatteryLevelCharacteristic->setValue(&initial, 1);
+  batteryService->start();
+
+  BLEAdvertising *advertising = BLEDevice::getAdvertising();
+  advertising->addServiceUUID(BLEUUID((uint16_t)0x180F));
+  advertising->start();
+}
+
+static void batteryBleUpdatePercent(uint8_t percent) {
+  if (gBatteryLevelCharacteristic == nullptr) {
+    return;
+  }
+  gBatteryLevelCharacteristic->setValue(&percent, 1);
+  gBatteryLevelCharacteristic->notify();
+}
+#endif
+
+static void batteryInit() {
+  pinMode(BATTERY_ADC_PIN, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+  gLastBatteryPollMs = 0;
+
+#if ENABLE_BLE_BATTERY_SERVICE
+  batteryBleInit();
+#endif
+}
+
+static void batteryPoll() {
+  const unsigned long nowMs = millis();
+  if (gBatteryInitialized && (nowMs - gLastBatteryPollMs) < BATTERY_POLL_INTERVAL_MS) {
+    return;
+  }
+  gLastBatteryPollMs = nowMs;
+
+  gBatteryPinVoltage = batteryReadPinVoltage();
+  gBatteryPackVoltage = batteryPinToPackVoltage(gBatteryPinVoltage);
+  const int instantPercent = batteryPercentFromVoltage(gBatteryPackVoltage);
+
+  if (!gBatteryInitialized) {
+    gBatteryFilteredPercent = static_cast<float>(instantPercent);
+    gBatteryInitialized = true;
+  } else {
+    gBatteryFilteredPercent +=
+        BATTERY_PERCENT_SMOOTH_ALPHA * (static_cast<float>(instantPercent) - gBatteryFilteredPercent);
+  }
+
+  gBatteryPercent = constrain(static_cast<int>(gBatteryFilteredPercent + 0.5f), 0, 100);
+
+#if ENABLE_BLE_BATTERY_SERVICE
+  batteryBleUpdatePercent(static_cast<uint8_t>(gBatteryPercent));
+#endif
+
+  if (ENABLE_SERIAL_DEBUG && ENABLE_BATTERY_DEBUG) {
+    Serial.printf("BAT pin=%.3fV pack=%.2fV soc=%d%%\n", gBatteryPinVoltage, gBatteryPackVoltage, gBatteryPercent);
+  }
+}
+
+static float batteryGetVoltage() {
+  return gBatteryPackVoltage;
+}
+
+static int batteryGetPercent() {
+  return gBatteryPercent;
+}
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -380,6 +567,10 @@ void setup() {
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: create deferred A2DP sink object");
   BluetoothA2DPSink &a2dpSink = getA2DPSink();
 
+  if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init battery monitor");
+  batteryInit();
+  batteryPoll();
+
   if (ENABLE_SERIAL_DEBUG) Serial.println("setup: init explicit I2S output");
   if (!initI2SOutput()) {
     if (ENABLE_SERIAL_DEBUG) {
@@ -400,6 +591,13 @@ void setup() {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
+    Serial.printf("Battery ADC -> PIN:%d Rtop:%.0f Rbottom:%.0f\n", BATTERY_ADC_PIN, BATTERY_R_TOP_OHMS, BATTERY_R_BOTTOM_OHMS);
+    Serial.printf("Battery status -> %.2fV %d%%\n", batteryGetVoltage(), batteryGetPercent());
+#if ENABLE_BLE_BATTERY_SERVICE
+    Serial.println("Battery BLE service enabled (0x180F/0x2A19).");
+#else
+    Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
+#endif
     Serial.println("Ready. Commands: name=YourNewName | vol=0..100");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
@@ -409,6 +607,7 @@ void loop() {
   if (ENABLE_ENCODER_CONTROLS) {
     handleEncoderControls();
   }
+  batteryPoll();
   handleSerialCommands();
   delay(2);
 }
