@@ -695,7 +695,11 @@ static void handleSerialCommands() {
                   gBleBatteryClientConnected ? "YES" : "NO",
                   gBleBatteryReportingEnabled ? "ON" : "OFF");
 #endif
-    Serial.println();
+    return;
+  }
+
+  if (line.equalsIgnoreCase("bat?")) {
+    printBatteryStatus();
     return;
   }
 
