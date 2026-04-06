@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.10.0
+0.12.0
 
 ## Summary
 
@@ -20,9 +20,6 @@ Arduino sketch for ESP32 that:
 - `IO25` -> `LRCK` (I2S word select / WS)
 - `IO26` -> `BCK` (I2S bit clock / SCK)
 - `IO13` -> `DATA` (I2S serial data out)
-- `IO35` -> `ENC-SW` (rotary encoder push switch)
-- `IO32` -> `ENC-A` (rotary encoder channel A)
-- `IO33` -> `ENC-B` (rotary encoder channel B)
 - `IO34` -> `BATTERY_ADC` (4S battery divider monitor input)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
@@ -33,15 +30,12 @@ Arduino sketch for ESP32 that:
 - Startup applies a short mute hold by driving I2S output pins low before A2DP/I2S start.
 - BT sink object is constructed on first use in `setup()` (not as a global static object) to reduce startup crashes from early initialization ordering.
 - Uses explicit ESP-IDF I2S driver setup on `IO26/IO25/IO13` and feeds PCM via A2DP stream callback for deterministic output routing.
-- Rotary encoder controls volume in 2% steps.
 - Firmware applies a configurable output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`, default `85`) to reduce clipping in downstream DACs on hot source material.
-- Pressing the encoder switch toggles mute/unmute.
-- Turning the encoder while muted unmutes and applies the new volume.
 - ESP32 starts A2DP sink and outputs I2S audio on the pins above.
 - Serial commands:
   - baud: `115200`
   - `name=YourNewName` saves new BT name and reboots to apply it
-  - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
+  - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately
   - `bat?` prints battery diagnostics: raw ADC average, ADC pin voltage, calculated pack voltage, estimated percentage, BLE advertising/reporting/client states
   - `batfake?` prints fake-battery mode state and configured percent
   - `batfake=0..100` enables fake-battery mode (useful when ADC input is disconnected) and forces the reported percentage
@@ -52,10 +46,11 @@ Arduino sketch for ESP32 that:
   - Requested volume above the cap is safely clamped before being applied to the A2DP sink.
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
-- Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
+- Rotary encoder support was removed; volume is controlled with Serial commands.
 - Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
 - Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
 - Fake battery mode can override ADC readings for bench testing and will continue updating BLE battery output from the configured fake percentage.
+- Battery capacity label can be set before flashing via `BATTERY_CAPACITY_TEXT` and is exposed over BLE diagnostic characteristic `12345678-1234-5678-1234-56789abcdef3`.
 - Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
 - BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
 - Battery ADC path uses ESP32 ADC1 legacy driver calls (`adc1_get_raw` + `esp_adc_cal`) for compatibility with builds that panic when mixing ADC legacy and ADC NG paths.
@@ -82,4 +77,3 @@ Install this Arduino library:
 - Receiver hardware connected to I2S pins accepts standard ESP32 I2S timing.
 - No external MCLK is required by the downstream DAC/device.
 - Bluetooth source device supports A2DP audio streaming.
-- `IO35` is input-only and does not provide an internal pull-up, so ENC-SW needs suitable external biasing.

@@ -5,6 +5,10 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Changed
+- `esp32/BTI2S` removes rotary encoder input handling and encoder pin usage; volume control remains available via Serial commands (`vol=...`)
+- `esp32/BTI2S` version bumped to `0.12.0`
+- `esp32/BTI2S` adds user-editable `BATTERY_CAPACITY_TEXT` and exposes it over BLE diagnostic characteristic `12345678-1234-5678-1234-56789abcdef3` for per-device capacity labeling
+- `esp32/BTI2S` version bumped to `0.11.0`
 - `esp32/BTI2S` adds fake battery test mode commands (`batfake?`, `batfake=0..100`, `batfake=on|off`) to simulate battery percentage when ADC input is disconnected
 - `esp32/BTI2S` fake battery mode reuses the existing 4S curve to derive pack voltage and continues BLE battery updates from the simulated SOC
 - `esp32/BTI2S` version bumped to `0.10.0`
@@ -24,6 +28,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.9.0`
 
 ### Fixed
+- `esp32/BTI2S` removes helper-function name collision risk by inlining `bat?` status print logic (fixes `redefinition of 'void printBatteryStatus()'` build error in some Arduino IDE sketch states)
+- `esp32/BTI2S` version bumped to `0.10.1`
 - `esp32/BTI2S` now always recognizes `blebat?` and `blebat=on|off` serial commands; when BLE battery is compile-time disabled it returns an explicit disabled message instead of `Unknown command`
 - `esp32/BTI2S` version bumped to `0.9.2`
 - `esp32/BTI2S` fixes BLE battery feature gating by defining `ENABLE_BLE_BATTERY_SERVICE` as a preprocessor macro so `#if`-guarded BLE code is actually compiled
