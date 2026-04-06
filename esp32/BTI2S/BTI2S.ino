@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.8.2
+// Version: 0.9.2
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -64,7 +64,7 @@ static constexpr size_t MAX_BT_NAME_LEN = 24;          // Conservative human-rea
 #define BATTERY_R_BOTTOM_OHMS    47000.0f
 static constexpr uint8_t BATTERY_ADC_SAMPLES = 16;
 static constexpr unsigned long BATTERY_POLL_INTERVAL_MS = 5000;
-static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;       // Simple analogRead scaling assumption.
+static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;       // Fallback scaling if ADC calibration is unavailable.
 static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
 static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f; // Lower = steadier, slower updates.
 static constexpr uint32_t BATTERY_ADC_DEFAULT_VREF_MV = 1100; // Used if eFuse calibration is unavailable.
@@ -72,7 +72,8 @@ static constexpr adc1_channel_t BATTERY_ADC1_CHANNEL = ADC1_CHANNEL_6; // GPIO34
 
 // BLE Battery Service support.
 // Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
-static constexpr bool ENABLE_BLE_BATTERY_SERVICE = true;
+// NOTE: This must be a preprocessor macro because BLE sections use #if/#endif.
+#define ENABLE_BLE_BATTERY_SERVICE 1
 static constexpr bool BLE_BATTERY_REPORT_DEFAULT_ENABLED = true;
 static constexpr char BLE_BATTERY_NAME_SUFFIX[] = "-BAT";
 
@@ -128,6 +129,7 @@ static float gBatteryPinVoltage = 0.0f;
 static float gBatteryPackVoltage = 0.0f;
 static float gBatteryFilteredPercent = 0.0f;
 static int gBatteryPercent = 0;
+static uint32_t gBatteryRawAdcAverage = 0;
 static bool gBatteryInitialized = false;
 static unsigned long gLastBatteryPollMs = 0;
 static bool gBleBatteryReportingEnabled = BLE_BATTERY_REPORT_DEFAULT_ENABLED;
@@ -136,7 +138,16 @@ static bool gBatteryAdcCalibrated = false;
 
 #if ENABLE_BLE_BATTERY_SERVICE
 static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
+static BLECharacteristic *gBatteryPackVoltageTextCharacteristic = nullptr;
+static BLECharacteristic *gBatteryPackPercentTextCharacteristic = nullptr;
 static String gBleBatteryDeviceName;
+static BLEServer *gBleBatteryServer = nullptr;
+static BLEAdvertising *gBleBatteryAdvertising = nullptr;
+static bool gBleBatteryAdvertisingActive = false;
+static bool gBleBatteryClientConnected = false;
+static constexpr char BLE_BATTERY_DIAG_SERVICE_UUID[] = "12345678-1234-5678-1234-56789abcdef0";
+static constexpr char BLE_BATTERY_DIAG_VOLTAGE_CHAR_UUID[] = "12345678-1234-5678-1234-56789abcdef1";
+static constexpr char BLE_BATTERY_DIAG_PERCENT_CHAR_UUID[] = "12345678-1234-5678-1234-56789abcdef2";
 #endif
 
 static BluetoothA2DPSink &getA2DPSink() {
@@ -161,16 +172,19 @@ static float batteryReadPinVoltage() {
     delay(2);
   }
 
-  const uint32_t adcAverage = adcSum / BATTERY_ADC_SAMPLES;
+  gBatteryRawAdcAverage = adcSum / BATTERY_ADC_SAMPLES;
   if (gBatteryAdcCalibrated) {
-    const uint32_t pinMilliVolts = esp_adc_cal_raw_to_voltage(adcAverage, &gBatteryAdcCharacteristics);
+    const uint32_t pinMilliVolts = esp_adc_cal_raw_to_voltage(gBatteryRawAdcAverage, &gBatteryAdcCharacteristics);
     return static_cast<float>(pinMilliVolts) / 1000.0f;
   }
 
-  return (static_cast<float>(adcAverage) / BATTERY_ADC_FULL_SCALE_COUNTS) * BATTERY_ADC_REF_VOLTAGE;
+  return (static_cast<float>(gBatteryRawAdcAverage) / BATTERY_ADC_FULL_SCALE_COUNTS) * BATTERY_ADC_REF_VOLTAGE;
 }
 
 static float batteryPinToPackVoltage(float pinVoltage) {
+  // Divider reconstruction:
+  // Vpack = Vpin * (Rtop + Rbottom) / Rbottom
+  // where Vpin is measured at BATTERY_ADC_PIN across Rbottom.
   const float dividerRatio = (BATTERY_R_TOP_OHMS + BATTERY_R_BOTTOM_OHMS) / BATTERY_R_BOTTOM_OHMS;
   return pinVoltage * dividerRatio;
 }
@@ -204,12 +218,58 @@ static int batteryPercentFromVoltage(float packVoltage) {
 }
 
 #if ENABLE_BLE_BATTERY_SERVICE
+class BatteryBleServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer * /*server*/) override {
+    gBleBatteryClientConnected = true;
+    if (ENABLE_SERIAL_DEBUG) {
+      Serial.println("BLE battery: client connected");
+    }
+  }
+
+  void onDisconnect(BLEServer *server) override {
+    gBleBatteryClientConnected = false;
+    if (ENABLE_SERIAL_DEBUG) {
+      Serial.println("BLE battery: client disconnected");
+    }
+    if (gBleBatteryReportingEnabled && server != nullptr) {
+      server->getAdvertising()->start();
+      gBleBatteryAdvertisingActive = true;
+      if (ENABLE_SERIAL_DEBUG) {
+        Serial.println("BLE battery: advertising resumed");
+      }
+    }
+  }
+};
+
+static BatteryBleServerCallbacks gBatteryBleServerCallbacks;
+
+static void batteryBleSetAdvertising(bool enabled) {
+  if (gBleBatteryAdvertising == nullptr) {
+    return;
+  }
+
+  if (enabled) {
+    gBleBatteryAdvertising->start();
+    gBleBatteryAdvertisingActive = true;
+  } else {
+    gBleBatteryAdvertising->stop();
+    gBleBatteryAdvertisingActive = false;
+  }
+}
+
 static void batteryBleInit(const String &baseName) {
+  // NOTE:
+  // A2DP audio and BLE are separate subsystems on ESP32.
+  // This optional BLE Battery Service is diagnostic-only and may appear as a
+  // separate peripheral identity (<BT_NAME>-BAT) in scanner apps.
+  // iPhone system battery UI integration for Bluetooth audio accessories
+  // is not guaranteed by a generic BLE 0x180F Battery Service.
   gBleBatteryDeviceName = baseName;
   gBleBatteryDeviceName += BLE_BATTERY_NAME_SUFFIX;
   BLEDevice::init(gBleBatteryDeviceName.c_str());
-  BLEServer *server = BLEDevice::createServer();
-  BLEService *batteryService = server->createService(BLEUUID((uint16_t)0x180F));
+  gBleBatteryServer = BLEDevice::createServer();
+  gBleBatteryServer->setCallbacks(&gBatteryBleServerCallbacks);
+  BLEService *batteryService = gBleBatteryServer->createService(BLEUUID((uint16_t)0x180F));
   gBatteryLevelCharacteristic = batteryService->createCharacteristic(
       BLEUUID((uint16_t)0x2A19), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   gBatteryLevelCharacteristic->addDescriptor(new BLE2902());
@@ -218,12 +278,22 @@ static void batteryBleInit(const String &baseName) {
   gBatteryLevelCharacteristic->setValue(&initial, 1);
   batteryService->start();
 
-  BLEAdvertising *advertising = BLEDevice::getAdvertising();
-  advertising->addServiceUUID(BLEUUID((uint16_t)0x180F));
-  advertising->setScanResponse(true);
-  advertising->setMinPreferred(0x06);  // iOS-friendly connection parameter hint
-  advertising->setMinPreferred(0x12);
-  advertising->start();
+  BLEService *diagService = gBleBatteryServer->createService(BLEUUID(BLE_BATTERY_DIAG_SERVICE_UUID));
+  gBatteryPackVoltageTextCharacteristic =
+      diagService->createCharacteristic(BLEUUID(BLE_BATTERY_DIAG_VOLTAGE_CHAR_UUID), BLECharacteristic::PROPERTY_READ);
+  gBatteryPackPercentTextCharacteristic =
+      diagService->createCharacteristic(BLEUUID(BLE_BATTERY_DIAG_PERCENT_CHAR_UUID), BLECharacteristic::PROPERTY_READ);
+  gBatteryPackVoltageTextCharacteristic->setValue("0.00");
+  gBatteryPackPercentTextCharacteristic->setValue("0");
+  diagService->start();
+
+  gBleBatteryAdvertising = BLEDevice::getAdvertising();
+  gBleBatteryAdvertising->addServiceUUID(BLEUUID((uint16_t)0x180F));
+  gBleBatteryAdvertising->addServiceUUID(BLEUUID(BLE_BATTERY_DIAG_SERVICE_UUID));
+  gBleBatteryAdvertising->setScanResponse(true);
+  gBleBatteryAdvertising->setMinPreferred(0x06);  // iOS-friendly connection parameter hint
+  gBleBatteryAdvertising->setMinPreferred(0x12);
+  batteryBleSetAdvertising(gBleBatteryReportingEnabled);
 }
 
 static void batteryBleUpdatePercent(uint8_t percent) {
@@ -233,8 +303,20 @@ static void batteryBleUpdatePercent(uint8_t percent) {
   gBatteryLevelCharacteristic->setValue(&percent, 1);
   gBatteryLevelCharacteristic->notify();
 }
-#endif
 
+static void batteryBleUpdateDiagnostics(float packVoltage, int percent) {
+  if (gBatteryPackVoltageTextCharacteristic != nullptr) {
+    char voltageText[12];
+    snprintf(voltageText, sizeof(voltageText), "%.2f", packVoltage);
+    gBatteryPackVoltageTextCharacteristic->setValue(voltageText);
+  }
+  if (gBatteryPackPercentTextCharacteristic != nullptr) {
+    char percentText[6];
+    snprintf(percentText, sizeof(percentText), "%d", percent);
+    gBatteryPackPercentTextCharacteristic->setValue(percentText);
+  }
+}
+#endif
 static void batteryInit() {
   pinMode(BATTERY_ADC_PIN, INPUT);
   adc1_config_width(ADC_WIDTH_BIT_12);
@@ -274,6 +356,7 @@ static void batteryPoll() {
   if (gBleBatteryReportingEnabled) {
     batteryBleUpdatePercent(static_cast<uint8_t>(gBatteryPercent));
   }
+  batteryBleUpdateDiagnostics(gBatteryPackVoltage, gBatteryPercent);
 #endif
 
   if (ENABLE_SERIAL_DEBUG && ENABLE_BATTERY_DEBUG) {
@@ -306,6 +389,21 @@ static bool parseOnOffValue(const String &text, bool &outValue) {
   return false;
 }
 #endif
+
+static void printBatteryStatus() {
+  Serial.printf("BAT raw=%lu pin=%.3fV pack=%.2fV soc=%d%%",
+                static_cast<unsigned long>(gBatteryRawAdcAverage),
+                gBatteryPinVoltage,
+                gBatteryPackVoltage,
+                gBatteryPercent);
+#if ENABLE_BLE_BATTERY_SERVICE
+  Serial.printf(" ble_adv=%s ble_client=%s ble_report=%s",
+                gBleBatteryAdvertisingActive ? "ON" : "OFF",
+                gBleBatteryClientConnected ? "YES" : "NO",
+                gBleBatteryReportingEnabled ? "ON" : "OFF");
+#endif
+  Serial.println();
+}
 
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
@@ -544,8 +642,8 @@ static void handleSerialCommands() {
     return;
   }
 
-#if ENABLE_BLE_BATTERY_SERVICE
   if (line.startsWith("blebat=")) {
+#if ENABLE_BLE_BATTERY_SERVICE
     String value = line.substring(7);
     value.trim();
     bool newState = gBleBatteryReportingEnabled;
@@ -556,19 +654,34 @@ static void handleSerialCommands() {
 
     gBleBatteryReportingEnabled = newState;
     if (gBleBatteryReportingEnabled) {
+      batteryBleSetAdvertising(true);
       batteryBleUpdatePercent(static_cast<uint8_t>(batteryGetPercent()));
+      batteryBleUpdateDiagnostics(gBatteryPackVoltage, gBatteryPercent);
+    } else {
+      batteryBleSetAdvertising(false);
     }
     Serial.printf("BLE battery reporting: %s\n", gBleBatteryReportingEnabled ? "ON" : "OFF");
+#else
+    Serial.println("BLE battery service is disabled at compile time (ENABLE_BLE_BATTERY_SERVICE=0).");
+#endif
     return;
   }
+
+  if (line.equalsIgnoreCase("blebat?")) {
+#if ENABLE_BLE_BATTERY_SERVICE
+    Serial.printf("BLE BAT service=ENABLED name=%s adv=%s client=%s report=%s\n",
+                  gBleBatteryDeviceName.c_str(),
+                  gBleBatteryAdvertisingActive ? "ON" : "OFF",
+                  gBleBatteryClientConnected ? "CONNECTED" : "DISCONNECTED",
+                  gBleBatteryReportingEnabled ? "ON" : "OFF");
+#else
+    Serial.println("BLE BAT service=DISABLED (compile-time). Set ENABLE_BLE_BATTERY_SERVICE=1 to enable.");
 #endif
+    return;
+  }
 
   if (line.equalsIgnoreCase("bat?")) {
-    Serial.printf("BAT %.2fV %d%%", batteryGetVoltage(), batteryGetPercent());
-#if ENABLE_BLE_BATTERY_SERVICE
-    Serial.printf(" BLE:%s", gBleBatteryReportingEnabled ? "ON" : "OFF");
-#endif
-    Serial.println();
+    printBatteryStatus();
     return;
   }
 
@@ -588,7 +701,7 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | blebat=on|off");
+  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | blebat? | blebat=on|off");
 }
 
 
@@ -663,15 +776,17 @@ void setup() {
     Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
     Serial.printf("Encoder pins -> SW:%d A:%d B:%d\n", ENC_SW_PIN, ENC_A_PIN, ENC_B_PIN);
     Serial.printf("Battery ADC -> PIN:%d Rtop:%.0f Rbottom:%.0f\n", BATTERY_ADC_PIN, BATTERY_R_TOP_OHMS, BATTERY_R_BOTTOM_OHMS);
-    Serial.printf("Battery status -> %.2fV %d%%\n", batteryGetVoltage(), batteryGetPercent());
+    Serial.printf("Battery startup -> pack=%.2fV soc=%d%% (first sample)\n", batteryGetVoltage(), batteryGetPercent());
 #if ENABLE_BLE_BATTERY_SERVICE
     Serial.printf("Battery BLE service enabled (0x180F/0x2A19), reporting %s. Toggle: blebat=on|off\n",
                   gBleBatteryReportingEnabled ? "ON" : "OFF");
     Serial.printf("Battery BLE name: %s\n", gBleBatteryDeviceName.c_str());
+    Serial.println("Note: iPhone may not show this generic BLE battery in system BT battery UI.");
+    Serial.println("      A2DP audio + BLE battery can appear as separate functions/devices.");
 #else
     Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
 #endif
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | blebat=on|off");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | blebat? | blebat=on|off");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
