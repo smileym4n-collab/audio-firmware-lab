@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.10.1
+0.11.0
 
 ## Summary
 
@@ -56,6 +56,7 @@ Arduino sketch for ESP32 that:
 - Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
 - Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
 - Fake battery mode can override ADC readings for bench testing and will continue updating BLE battery output from the configured fake percentage.
+- Battery capacity label can be set before flashing via `BATTERY_CAPACITY_TEXT` and is exposed over BLE diagnostic characteristic `12345678-1234-5678-1234-56789abcdef3`.
 - Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
 - BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
 - Battery ADC path uses ESP32 ADC1 legacy driver calls (`adc1_get_raw` + `esp_adc_cal`) for compatibility with builds that panic when mixing ADC legacy and ADC NG paths.

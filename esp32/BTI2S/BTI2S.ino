@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.10.1
+// Version: 0.11.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -69,6 +69,7 @@ static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
 static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f; // Lower = steadier, slower updates.
 static constexpr uint32_t BATTERY_ADC_DEFAULT_VREF_MV = 1100; // Used if eFuse calibration is unavailable.
 static constexpr adc1_channel_t BATTERY_ADC1_CHANNEL = ADC1_CHANNEL_6; // GPIO34 -> ADC1_CH6
+static constexpr char BATTERY_CAPACITY_TEXT[] = "4S 10Ah"; // User-editable battery capacity label shown over BLE.
 
 // BLE Battery Service support.
 // Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
@@ -142,6 +143,7 @@ static bool gBatteryAdcCalibrated = false;
 static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
 static BLECharacteristic *gBatteryPackVoltageTextCharacteristic = nullptr;
 static BLECharacteristic *gBatteryPackPercentTextCharacteristic = nullptr;
+static BLECharacteristic *gBatteryCapacityTextCharacteristic = nullptr;
 static String gBleBatteryDeviceName;
 static BLEServer *gBleBatteryServer = nullptr;
 static BLEAdvertising *gBleBatteryAdvertising = nullptr;
@@ -150,6 +152,7 @@ static bool gBleBatteryClientConnected = false;
 static constexpr char BLE_BATTERY_DIAG_SERVICE_UUID[] = "12345678-1234-5678-1234-56789abcdef0";
 static constexpr char BLE_BATTERY_DIAG_VOLTAGE_CHAR_UUID[] = "12345678-1234-5678-1234-56789abcdef1";
 static constexpr char BLE_BATTERY_DIAG_PERCENT_CHAR_UUID[] = "12345678-1234-5678-1234-56789abcdef2";
+static constexpr char BLE_BATTERY_DIAG_CAPACITY_CHAR_UUID[] = "12345678-1234-5678-1234-56789abcdef3";
 #endif
 
 static BluetoothA2DPSink &getA2DPSink() {
@@ -312,8 +315,11 @@ static void batteryBleInit(const String &baseName) {
       diagService->createCharacteristic(BLEUUID(BLE_BATTERY_DIAG_VOLTAGE_CHAR_UUID), BLECharacteristic::PROPERTY_READ);
   gBatteryPackPercentTextCharacteristic =
       diagService->createCharacteristic(BLEUUID(BLE_BATTERY_DIAG_PERCENT_CHAR_UUID), BLECharacteristic::PROPERTY_READ);
+  gBatteryCapacityTextCharacteristic =
+      diagService->createCharacteristic(BLEUUID(BLE_BATTERY_DIAG_CAPACITY_CHAR_UUID), BLECharacteristic::PROPERTY_READ);
   gBatteryPackVoltageTextCharacteristic->setValue("0.00");
   gBatteryPackPercentTextCharacteristic->setValue("0");
+  gBatteryCapacityTextCharacteristic->setValue(BATTERY_CAPACITY_TEXT);
   diagService->start();
 
   gBleBatteryAdvertising = BLEDevice::getAdvertising();
@@ -755,11 +761,12 @@ static void handleSerialCommands() {
 
   if (line.equalsIgnoreCase("blebat?")) {
 #if ENABLE_BLE_BATTERY_SERVICE
-    Serial.printf("BLE BAT service=ENABLED name=%s adv=%s client=%s report=%s\n",
+    Serial.printf("BLE BAT service=ENABLED name=%s adv=%s client=%s report=%s cap=%s\n",
                   gBleBatteryDeviceName.c_str(),
                   gBleBatteryAdvertisingActive ? "ON" : "OFF",
                   gBleBatteryClientConnected ? "CONNECTED" : "DISCONNECTED",
-                  gBleBatteryReportingEnabled ? "ON" : "OFF");
+                  gBleBatteryReportingEnabled ? "ON" : "OFF",
+                  BATTERY_CAPACITY_TEXT);
 #else
     Serial.println("BLE BAT service=DISABLED (compile-time). Set ENABLE_BLE_BATTERY_SERVICE=1 to enable.");
 #endif
@@ -879,6 +886,7 @@ void setup() {
     Serial.printf("Battery BLE service enabled (0x180F/0x2A19), reporting %s. Toggle: blebat=on|off\n",
                   gBleBatteryReportingEnabled ? "ON" : "OFF");
     Serial.printf("Battery BLE name: %s\n", gBleBatteryDeviceName.c_str());
+    Serial.printf("Battery capacity label (BLE diag): %s\n", BATTERY_CAPACITY_TEXT);
     Serial.println("Note: iPhone may not show this generic BLE battery in system BT battery UI.");
     Serial.println("      A2DP audio + BLE battery can appear as separate functions/devices.");
 #else
