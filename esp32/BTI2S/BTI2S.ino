@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.9.1
+// Version: 0.9.2
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -642,8 +642,8 @@ static void handleSerialCommands() {
     return;
   }
 
-#if ENABLE_BLE_BATTERY_SERVICE
   if (line.startsWith("blebat=")) {
+#if ENABLE_BLE_BATTERY_SERVICE
     String value = line.substring(7);
     value.trim();
     bool newState = gBleBatteryReportingEnabled;
@@ -661,18 +661,24 @@ static void handleSerialCommands() {
       batteryBleSetAdvertising(false);
     }
     Serial.printf("BLE battery reporting: %s\n", gBleBatteryReportingEnabled ? "ON" : "OFF");
+#else
+    Serial.println("BLE battery service is disabled at compile time (ENABLE_BLE_BATTERY_SERVICE=0).");
+#endif
     return;
   }
 
   if (line.equalsIgnoreCase("blebat?")) {
+#if ENABLE_BLE_BATTERY_SERVICE
     Serial.printf("BLE BAT service=ENABLED name=%s adv=%s client=%s report=%s\n",
                   gBleBatteryDeviceName.c_str(),
                   gBleBatteryAdvertisingActive ? "ON" : "OFF",
                   gBleBatteryClientConnected ? "CONNECTED" : "DISCONNECTED",
                   gBleBatteryReportingEnabled ? "ON" : "OFF");
+#else
+    Serial.println("BLE BAT service=DISABLED (compile-time). Set ENABLE_BLE_BATTERY_SERVICE=1 to enable.");
+#endif
     return;
   }
-#endif
 
   if (line.equalsIgnoreCase("bat?")) {
     printBatteryStatus();

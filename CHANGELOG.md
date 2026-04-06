@@ -21,6 +21,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.9.0`
 
 ### Fixed
+- `esp32/BTI2S` now always recognizes `blebat?` and `blebat=on|off` serial commands; when BLE battery is compile-time disabled it returns an explicit disabled message instead of `Unknown command`
+- `esp32/BTI2S` version bumped to `0.9.2`
 - `esp32/BTI2S` fixes BLE battery feature gating by defining `ENABLE_BLE_BATTERY_SERVICE` as a preprocessor macro so `#if`-guarded BLE code is actually compiled
 - `esp32/BTI2S` restores `blebat=on|off` and `blebat?` command handling in builds with BLE battery enabled
 - `esp32/BTI2S` version bumped to `0.9.1`

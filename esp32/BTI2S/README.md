@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.9.1
+0.9.2
 
 ## Summary
 
@@ -45,6 +45,7 @@ Arduino sketch for ESP32 that:
   - `bat?` prints battery diagnostics: raw ADC average, ADC pin voltage, calculated pack voltage, estimated percentage, BLE advertising/reporting/client states
   - `blebat?` prints BLE battery diagnostics (service state, device name, advertising state, client state, reporting state)
   - `blebat=on|off` toggles BLE battery reporting + advertising at runtime
+  - If BLE battery is compile-time disabled, `blebat?` / `blebat=...` still return an explicit "disabled at compile time" message instead of "Unknown command"
   - Requested volume above the cap is safely clamped before being applied to the A2DP sink.
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
