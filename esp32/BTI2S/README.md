@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.9.2
+0.10.0
 
 ## Summary
 
@@ -43,6 +43,9 @@ Arduino sketch for ESP32 that:
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
   - `bat?` prints battery diagnostics: raw ADC average, ADC pin voltage, calculated pack voltage, estimated percentage, BLE advertising/reporting/client states
+  - `batfake?` prints fake-battery mode state and configured percent
+  - `batfake=0..100` enables fake-battery mode (useful when ADC input is disconnected) and forces the reported percentage
+  - `batfake=on|off` enables/disables fake-battery mode using the current configured fake percentage
   - `blebat?` prints BLE battery diagnostics (service state, device name, advertising state, client state, reporting state)
   - `blebat=on|off` toggles BLE battery reporting + advertising at runtime
   - If BLE battery is compile-time disabled, `blebat?` / `blebat=...` still return an explicit "disabled at compile time" message instead of "Unknown command"
@@ -52,6 +55,7 @@ Arduino sketch for ESP32 that:
 - Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
 - Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
 - Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
+- Fake battery mode can override ADC readings for bench testing and will continue updating BLE battery output from the configured fake percentage.
 - Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
 - BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
 - Battery ADC path uses ESP32 ADC1 legacy driver calls (`adc1_get_raw` + `esp_adc_cal`) for compatibility with builds that panic when mixing ADC legacy and ADC NG paths.

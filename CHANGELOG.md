@@ -5,6 +5,9 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Changed
+- `esp32/BTI2S` adds fake battery test mode commands (`batfake?`, `batfake=0..100`, `batfake=on|off`) to simulate battery percentage when ADC input is disconnected
+- `esp32/BTI2S` fake battery mode reuses the existing 4S curve to derive pack voltage and continues BLE battery updates from the simulated SOC
+- `esp32/BTI2S` version bumped to `0.10.0`
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
 - `esp32/BTI2S` adds 4S battery monitoring on a configurable ADC pin with resistor-divider scaling, multi-sample averaging, interpolation-based SOC lookup, and smoothed 0..100% reporting

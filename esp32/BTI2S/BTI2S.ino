@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.9.2
+// Version: 0.10.0
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -130,6 +130,8 @@ static float gBatteryPackVoltage = 0.0f;
 static float gBatteryFilteredPercent = 0.0f;
 static int gBatteryPercent = 0;
 static uint32_t gBatteryRawAdcAverage = 0;
+static bool gBatteryFakeEnabled = false;
+static int gBatteryFakePercent = 50;
 static bool gBatteryInitialized = false;
 static unsigned long gLastBatteryPollMs = 0;
 static bool gBleBatteryReportingEnabled = BLE_BATTERY_REPORT_DEFAULT_ENABLED;
@@ -215,6 +217,33 @@ static int batteryPercentFromVoltage(float packVoltage) {
   }
 
   return 0;
+}
+
+// Reverse lookup helper for fake battery mode.
+// Input: desired 0..100% SOC. Output: estimated pack voltage from the same 4S table.
+static float batteryVoltageFromPercent(int percent) {
+  const int target = constrain(percent, 0, 100);
+  if (target >= battery_curve_4s[0].percent) {
+    return battery_curve_4s[0].pack_voltage;
+  }
+  if (target <= battery_curve_4s[BATTERY_CURVE_POINTS - 1].percent) {
+    return battery_curve_4s[BATTERY_CURVE_POINTS - 1].pack_voltage;
+  }
+
+  for (size_t i = 0; i < (BATTERY_CURVE_POINTS - 1); ++i) {
+    const battery_point_t &high = battery_curve_4s[i];
+    const battery_point_t &low = battery_curve_4s[i + 1];
+    if (target <= high.percent && target >= low.percent) {
+      const int spanP = high.percent - low.percent;
+      if (spanP <= 0) {
+        return high.pack_voltage;
+      }
+      const float t = static_cast<float>(target - low.percent) / static_cast<float>(spanP);
+      return low.pack_voltage + t * (high.pack_voltage - low.pack_voltage);
+    }
+  }
+
+  return battery_curve_4s[BATTERY_CURVE_POINTS - 1].pack_voltage;
 }
 
 #if ENABLE_BLE_BATTERY_SERVICE
@@ -331,12 +360,39 @@ static void batteryInit() {
 #endif
 }
 
+static void batteryApplyFakeMeasurement() {
+  gBatteryPercent = constrain(gBatteryFakePercent, 0, 100);
+  gBatteryFilteredPercent = static_cast<float>(gBatteryPercent);
+  gBatteryPackVoltage = batteryVoltageFromPercent(gBatteryPercent);
+  const float dividerRatio = (BATTERY_R_TOP_OHMS + BATTERY_R_BOTTOM_OHMS) / BATTERY_R_BOTTOM_OHMS;
+  gBatteryPinVoltage = gBatteryPackVoltage / dividerRatio;
+  gBatteryRawAdcAverage = 0;
+  gBatteryInitialized = true;
+}
+
 static void batteryPoll() {
   const unsigned long nowMs = millis();
   if (gBatteryInitialized && (nowMs - gLastBatteryPollMs) < BATTERY_POLL_INTERVAL_MS) {
     return;
   }
   gLastBatteryPollMs = nowMs;
+
+  if (gBatteryFakeEnabled) {
+    batteryApplyFakeMeasurement();
+#if ENABLE_BLE_BATTERY_SERVICE
+    if (gBleBatteryReportingEnabled) {
+      batteryBleUpdatePercent(static_cast<uint8_t>(gBatteryPercent));
+    }
+    batteryBleUpdateDiagnostics(gBatteryPackVoltage, gBatteryPercent);
+#endif
+    if (ENABLE_SERIAL_DEBUG && ENABLE_BATTERY_DEBUG) {
+      Serial.printf("BAT FAKE pin=%.3fV pack=%.2fV soc=%d%%\n",
+                    gBatteryPinVoltage,
+                    gBatteryPackVoltage,
+                    gBatteryPercent);
+    }
+    return;
+  }
 
   gBatteryPinVoltage = batteryReadPinVoltage();
   gBatteryPackVoltage = batteryPinToPackVoltage(gBatteryPinVoltage);
@@ -376,7 +432,6 @@ static int batteryGetPercent() {
   return gBatteryPercent;
 }
 
-#if ENABLE_BLE_BATTERY_SERVICE
 static bool parseOnOffValue(const String &text, bool &outValue) {
   if (text.equalsIgnoreCase("on") || text.equalsIgnoreCase("1") || text.equalsIgnoreCase("true")) {
     outValue = true;
@@ -388,7 +443,22 @@ static bool parseOnOffValue(const String &text, bool &outValue) {
   }
   return false;
 }
+
+static void printBatteryStatus() {
+  Serial.printf("BAT mode=%s raw=%lu pin=%.3fV pack=%.2fV soc=%d%%",
+                gBatteryFakeEnabled ? "FAKE" : "REAL",
+                static_cast<unsigned long>(gBatteryRawAdcAverage),
+                gBatteryPinVoltage,
+                gBatteryPackVoltage,
+                gBatteryPercent);
+#if ENABLE_BLE_BATTERY_SERVICE
+  Serial.printf(" ble_adv=%s ble_client=%s ble_report=%s",
+                gBleBatteryAdvertisingActive ? "ON" : "OFF",
+                gBleBatteryClientConnected ? "YES" : "NO",
+                gBleBatteryReportingEnabled ? "ON" : "OFF");
 #endif
+  Serial.println();
+}
 
 static void printBatteryStatus() {
   Serial.printf("BAT raw=%lu pin=%.3fV pack=%.2fV soc=%d%%",
@@ -642,6 +712,53 @@ static void handleSerialCommands() {
     return;
   }
 
+  if (line.equalsIgnoreCase("batfake?")) {
+    Serial.printf("BAT fake mode: %s (%d%%)\n", gBatteryFakeEnabled ? "ON" : "OFF", gBatteryFakePercent);
+    return;
+  }
+
+  if (line.startsWith("batfake=")) {
+    String value = line.substring(8);
+    value.trim();
+    bool onOffValue = gBatteryFakeEnabled;
+    if (parseOnOffValue(value, onOffValue)) {
+      gBatteryFakeEnabled = onOffValue;
+      if (gBatteryFakeEnabled) {
+        batteryApplyFakeMeasurement();
+      } else {
+        gBatteryInitialized = false;
+      }
+      gLastBatteryPollMs = 0;
+      Serial.printf("BAT fake mode: %s (%d%%)\n", gBatteryFakeEnabled ? "ON" : "OFF", gBatteryFakePercent);
+      return;
+    }
+
+    bool digitsOnly = !value.isEmpty();
+    for (size_t i = 0; i < static_cast<size_t>(value.length()); ++i) {
+      if (!isDigit(value.charAt(static_cast<unsigned int>(i)))) {
+        digitsOnly = false;
+        break;
+      }
+    }
+    if (!digitsOnly) {
+      Serial.println("Invalid batfake value. Use: batfake=0..100 | batfake=on | batfake=off");
+      return;
+    }
+
+    long parsed = value.toInt();
+    if (parsed < 0 || parsed > 100) {
+      Serial.println("Invalid batfake value. Use: batfake=0..100");
+      return;
+    }
+
+    gBatteryFakePercent = static_cast<int>(parsed);
+    gBatteryFakeEnabled = true;
+    batteryApplyFakeMeasurement();
+    gLastBatteryPollMs = 0;
+    Serial.printf("BAT fake mode: ON (%d%%)\n", gBatteryFakePercent);
+    return;
+  }
+
   if (line.startsWith("blebat=")) {
 #if ENABLE_BLE_BATTERY_SERVICE
     String value = line.substring(7);
@@ -701,7 +818,7 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | blebat? | blebat=on|off");
+  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
 }
 
 
@@ -786,7 +903,7 @@ void setup() {
 #else
     Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
 #endif
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | blebat? | blebat=on|off");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
