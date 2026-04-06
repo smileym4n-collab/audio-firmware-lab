@@ -5,6 +5,9 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Changed
+- `esp32/BTI2S` adds fake battery test mode commands (`batfake?`, `batfake=0..100`, `batfake=on|off`) to simulate battery percentage when ADC input is disconnected
+- `esp32/BTI2S` fake battery mode reuses the existing 4S curve to derive pack voltage and continues BLE battery updates from the simulated SOC
+- `esp32/BTI2S` version bumped to `0.10.0`
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
 - `esp32/BTI2S` adds 4S battery monitoring on a configurable ADC pin with resistor-divider scaling, multi-sample averaging, interpolation-based SOC lookup, and smoothed 0..100% reporting
@@ -15,7 +18,17 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` now advertises BLE battery service with name `<BT_NAME>-BAT` and iOS-friendly advertising hints to improve discoverability in iPhone BLE scanner apps
 - `esp32/BTI2S` version bumped to `0.8.2`
 
+- `esp32/BTI2S` improves battery diagnostics with `bat?` detailed output (raw ADC average, ADC pin volts, pack volts, percent, BLE state) and startup first-sample battery print
+- `esp32/BTI2S` adds BLE battery diagnostics commands (`blebat?`, `blebat=on|off`) plus BLE client connect/disconnect serial logs
+- `esp32/BTI2S` keeps BLE battery optional and adds explicit iPhone UI limitation notes plus optional custom BLE diagnostic characteristics (pack voltage text and percent text)
+- `esp32/BTI2S` version bumped to `0.9.0`
+
 ### Fixed
+- `esp32/BTI2S` now always recognizes `blebat?` and `blebat=on|off` serial commands; when BLE battery is compile-time disabled it returns an explicit disabled message instead of `Unknown command`
+- `esp32/BTI2S` version bumped to `0.9.2`
+- `esp32/BTI2S` fixes BLE battery feature gating by defining `ENABLE_BLE_BATTERY_SERVICE` as a preprocessor macro so `#if`-guarded BLE code is actually compiled
+- `esp32/BTI2S` restores `blebat=on|off` and `blebat?` command handling in builds with BLE battery enabled
+- `esp32/BTI2S` version bumped to `0.9.1`
 - `esp32/BTI2S` resolves ESP32 boot crash (`ADC: CONFLICT! driver_ng is not allowed to be used with the legacy driver`) by switching battery sampling to ADC1 legacy API (`adc1_get_raw`/`adc1_config_*`) with `esp_adc_cal` conversion
 - `esp32/BTI2S` version bumped to `0.8.1`
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
