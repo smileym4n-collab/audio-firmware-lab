@@ -5,6 +5,8 @@ All notable changes to this repository will be recorded here.
 ## [Unreleased]
 
 ### Changed
+- `esp32/BTI2S` removes rotary encoder input handling and encoder pin usage; volume control remains available via Serial commands (`vol=...`)
+- `esp32/BTI2S` version bumped to `0.12.0`
 - `esp32/BTI2S` adds user-editable `BATTERY_CAPACITY_TEXT` and exposes it over BLE diagnostic characteristic `12345678-1234-5678-1234-56789abcdef3` for per-device capacity labeling
 - `esp32/BTI2S` version bumped to `0.11.0`
 - `esp32/BTI2S` adds fake battery test mode commands (`batfake?`, `batfake=0..100`, `batfake=on|off`) to simulate battery percentage when ADC input is disconnected
