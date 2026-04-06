@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.9.0
+// Version: 0.9.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -72,7 +72,8 @@ static constexpr adc1_channel_t BATTERY_ADC1_CHANNEL = ADC1_CHANNEL_6; // GPIO34
 
 // BLE Battery Service support.
 // Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
-static constexpr bool ENABLE_BLE_BATTERY_SERVICE = true;
+// NOTE: This must be a preprocessor macro because BLE sections use #if/#endif.
+#define ENABLE_BLE_BATTERY_SERVICE 1
 static constexpr bool BLE_BATTERY_REPORT_DEFAULT_ENABLED = true;
 static constexpr char BLE_BATTERY_NAME_SUFFIX[] = "-BAT";
 
