@@ -460,6 +460,21 @@ static void printBatteryStatus() {
   Serial.println();
 }
 
+static void printBatteryStatus() {
+  Serial.printf("BAT raw=%lu pin=%.3fV pack=%.2fV soc=%d%%",
+                static_cast<unsigned long>(gBatteryRawAdcAverage),
+                gBatteryPinVoltage,
+                gBatteryPackVoltage,
+                gBatteryPercent);
+#if ENABLE_BLE_BATTERY_SERVICE
+  Serial.printf(" ble_adv=%s ble_client=%s ble_report=%s",
+                gBleBatteryAdvertisingActive ? "ON" : "OFF",
+                gBleBatteryClientConnected ? "YES" : "NO",
+                gBleBatteryReportingEnabled ? "ON" : "OFF");
+#endif
+  Serial.println();
+}
+
 static void applyStartupMuteState() {
   // Keep all I2S output lines in a known inactive state while BT/I2S stack initializes.
   pinMode(I2S_BCK_PIN, OUTPUT);
