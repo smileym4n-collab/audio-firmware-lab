@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.6.0
+0.8.2
 
 ## Summary
 
@@ -23,6 +23,7 @@ Arduino sketch for ESP32 that:
 - `IO35` -> `ENC-SW` (rotary encoder push switch)
 - `IO32` -> `ENC-A` (rotary encoder channel A)
 - `IO33` -> `ENC-B` (rotary encoder channel B)
+- `IO34` -> `BATTERY_ADC` (4S battery divider monitor input)
 - MCLK: not used (`I2S_PIN_NO_CHANGE`)
 
 ## Behaviour
@@ -41,10 +42,18 @@ Arduino sketch for ESP32 that:
   - baud: `115200`
   - `name=YourNewName` saves new BT name and reboots to apply it
   - `vol=0..100` (or `volume=0..100`) sets runtime volume immediately and clears mute
+  - `bat?` prints latest battery voltage/percent (and BLE report state)
+  - `blebat=on|off` toggles BLE battery percentage notifications at runtime
   - Requested volume above the cap is safely clamped before being applied to the A2DP sink.
 - Serial connection-state logs are printed when source devices connect/disconnect.
 - Prints runtime I2S sample-rate updates received from the Bluetooth stream.
 - Encoder controls can be disabled in firmware (`ENABLE_ENCODER_CONTROLS = false`) for encoder-free serial-volume deployments.
+- Battery monitor samples ADC on `IO34` using configurable averaging and reports estimated 4S pack voltage + smoothed percent.
+- Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
+- Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
+- BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
+- Battery ADC path uses ESP32 ADC1 legacy driver calls (`adc1_get_raw` + `esp_adc_cal`) for compatibility with builds that panic when mixing ADC legacy and ADC NG paths.
+- BLE battery side advertises with a separate name (`<BT_NAME>-BAT`) and uses iOS-friendly advertising hints (`setScanResponse(true)`, `setMinPreferred(...)`) to improve discovery on iPhone BLE scanner apps.
 
 ## External library
 

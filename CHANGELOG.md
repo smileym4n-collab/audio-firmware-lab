@@ -7,8 +7,17 @@ All notable changes to this repository will be recorded here.
 ### Changed
 - `esp32/BTI2S` adds a configurable firmware output volume cap (`MAX_OUTPUT_VOLUME_PERCENT`) to clamp applied sink volume and reduce downstream DAC clipping on hot source material
 - `esp32/BTI2S` version bumped to `0.6.0`
+- `esp32/BTI2S` adds 4S battery monitoring on a configurable ADC pin with resistor-divider scaling, multi-sample averaging, interpolation-based SOC lookup, and smoothed 0..100% reporting
+- `esp32/BTI2S` keeps BLE battery service controllable behind a compile-time flag (`ENABLE_BLE_BATTERY_SERVICE`)
+- `esp32/BTI2S` version bumped to `0.7.0`
+- `esp32/BTI2S` enables BLE Battery Service support by default and adds Serial runtime toggle command `blebat=on|off` plus `bat?` status command
+- `esp32/BTI2S` version bumped to `0.8.0`
+- `esp32/BTI2S` now advertises BLE battery service with name `<BT_NAME>-BAT` and iOS-friendly advertising hints to improve discoverability in iPhone BLE scanner apps
+- `esp32/BTI2S` version bumped to `0.8.2`
 
 ### Fixed
+- `esp32/BTI2S` resolves ESP32 boot crash (`ADC: CONFLICT! driver_ng is not allowed to be used with the legacy driver`) by switching battery sampling to ADC1 legacy API (`adc1_get_raw`/`adc1_config_*`) with `esp_adc_cal` conversion
+- `esp32/BTI2S` version bumped to `0.8.1`
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
 - `attiny/1616/PreAmpv2` scopes debug-only LCD helper functions behind `PREAMPV2_LCD_DEBUG` to avoid unused-function warnings
 - `attiny/1616/PreAmpv2` version bumped to `0.3.8`
