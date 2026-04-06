@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.8.0
+0.8.1
 
 ## Summary
 
@@ -52,6 +52,7 @@ Arduino sketch for ESP32 that:
 - Battery percentage uses a tunable 4S lookup table with interpolation (not a simple linear mapping), then smooths output to reduce jumpy readings.
 - Battery debug line can be toggled with `ENABLE_BATTERY_DEBUG`.
 - BLE Battery Service support is present behind `ENABLE_BLE_BATTERY_SERVICE`; when enabled in code, reporting is runtime-toggleable from Serial with `blebat=on|off`.
+- Battery ADC path uses ESP32 ADC1 legacy driver calls (`adc1_get_raw` + `esp_adc_cal`) for compatibility with builds that panic when mixing ADC legacy and ADC NG paths.
 
 ## External library
 

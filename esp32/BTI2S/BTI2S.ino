@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.8.0
+// Version: 0.8.1
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -21,6 +21,8 @@
 #include <Arduino.h>
 #include <BluetoothA2DPSink.h>
 #include <Preferences.h>
+#include <esp_adc_cal.h>
+#include <driver/adc.h>
 #include <driver/i2s.h>
 
 // ------------------------------
@@ -65,6 +67,8 @@ static constexpr unsigned long BATTERY_POLL_INTERVAL_MS = 5000;
 static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;       // Simple analogRead scaling assumption.
 static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
 static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f; // Lower = steadier, slower updates.
+static constexpr uint32_t BATTERY_ADC_DEFAULT_VREF_MV = 1100; // Used if eFuse calibration is unavailable.
+static constexpr adc1_channel_t BATTERY_ADC1_CHANNEL = ADC1_CHANNEL_6; // GPIO34 -> ADC1_CH6
 
 // BLE Battery Service support.
 // Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
@@ -126,6 +130,8 @@ static int gBatteryPercent = 0;
 static bool gBatteryInitialized = false;
 static unsigned long gLastBatteryPollMs = 0;
 static bool gBleBatteryReportingEnabled = BLE_BATTERY_REPORT_DEFAULT_ENABLED;
+static esp_adc_cal_characteristics_t gBatteryAdcCharacteristics;
+static bool gBatteryAdcCalibrated = false;
 
 #if ENABLE_BLE_BATTERY_SERVICE
 static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
@@ -149,12 +155,17 @@ unsigned long lastSwitchChangeAtMs = 0;
 static float batteryReadPinVoltage() {
   uint32_t adcSum = 0;
   for (uint8_t i = 0; i < BATTERY_ADC_SAMPLES; ++i) {
-    adcSum += static_cast<uint32_t>(analogRead(BATTERY_ADC_PIN));
+    adcSum += static_cast<uint32_t>(adc1_get_raw(BATTERY_ADC1_CHANNEL));
     delay(2);
   }
 
-  const float adcAverage = static_cast<float>(adcSum) / static_cast<float>(BATTERY_ADC_SAMPLES);
-  return (adcAverage / BATTERY_ADC_FULL_SCALE_COUNTS) * BATTERY_ADC_REF_VOLTAGE;
+  const uint32_t adcAverage = adcSum / BATTERY_ADC_SAMPLES;
+  if (gBatteryAdcCalibrated) {
+    const uint32_t pinMilliVolts = esp_adc_cal_raw_to_voltage(adcAverage, &gBatteryAdcCharacteristics);
+    return static_cast<float>(pinMilliVolts) / 1000.0f;
+  }
+
+  return (static_cast<float>(adcAverage) / BATTERY_ADC_FULL_SCALE_COUNTS) * BATTERY_ADC_REF_VOLTAGE;
 }
 
 static float batteryPinToPackVoltage(float pinVoltage) {
@@ -219,8 +230,11 @@ static void batteryBleUpdatePercent(uint8_t percent) {
 
 static void batteryInit() {
   pinMode(BATTERY_ADC_PIN, INPUT);
-  analogReadResolution(12);
-  analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+  adc1_config_width(ADC_WIDTH_BIT_12);
+  adc1_config_channel_atten(BATTERY_ADC1_CHANNEL, ADC_ATTEN_DB_11);
+  esp_adc_cal_value_t calType = esp_adc_cal_characterize(
+      ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, BATTERY_ADC_DEFAULT_VREF_MV, &gBatteryAdcCharacteristics);
+  gBatteryAdcCalibrated = (calType != ESP_ADC_CAL_VAL_NOT_SUPPORTED);
   gLastBatteryPollMs = 0;
 
 #if ENABLE_BLE_BATTERY_SERVICE
@@ -256,7 +270,11 @@ static void batteryPoll() {
 #endif
 
   if (ENABLE_SERIAL_DEBUG && ENABLE_BATTERY_DEBUG) {
-    Serial.printf("BAT pin=%.3fV pack=%.2fV soc=%d%%\n", gBatteryPinVoltage, gBatteryPackVoltage, gBatteryPercent);
+    Serial.printf("BAT pin=%.3fV pack=%.2fV soc=%d%% cal=%s\n",
+                  gBatteryPinVoltage,
+                  gBatteryPackVoltage,
+                  gBatteryPercent,
+                  gBatteryAdcCalibrated ? "Y" : "N");
   }
 }
 

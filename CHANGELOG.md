@@ -14,6 +14,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.8.0`
 
 ### Fixed
+- `esp32/BTI2S` resolves ESP32 boot crash (`ADC: CONFLICT! driver_ng is not allowed to be used with the legacy driver`) by switching battery sampling to ADC1 legacy API (`adc1_get_raw`/`adc1_config_*`) with `esp_adc_cal` conversion
+- `esp32/BTI2S` version bumped to `0.8.1`
 - `attiny/1616/PreAmpv2` fixes persistent blank normal display by removing formatted-width rendering from LCD updates and writing centered text directly
 - `attiny/1616/PreAmpv2` scopes debug-only LCD helper functions behind `PREAMPV2_LCD_DEBUG` to avoid unused-function warnings
 - `attiny/1616/PreAmpv2` version bumped to `0.3.8`
