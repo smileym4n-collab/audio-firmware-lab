@@ -12,6 +12,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.7.0`
 - `esp32/BTI2S` enables BLE Battery Service support by default and adds Serial runtime toggle command `blebat=on|off` plus `bat?` status command
 - `esp32/BTI2S` version bumped to `0.8.0`
+- `esp32/BTI2S` now advertises BLE battery service with name `<BT_NAME>-BAT` and iOS-friendly advertising hints to improve discoverability in iPhone BLE scanner apps
+- `esp32/BTI2S` version bumped to `0.8.2`
 
 ### Fixed
 - `esp32/BTI2S` resolves ESP32 boot crash (`ADC: CONFLICT! driver_ng is not allowed to be used with the legacy driver`) by switching battery sampling to ADC1 legacy API (`adc1_get_raw`/`adc1_config_*`) with `esp_adc_cal` conversion

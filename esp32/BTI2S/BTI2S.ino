@@ -1,7 +1,7 @@
 /*
 
 // BTI2S
-// Version: 0.8.1
+// Version: 0.8.2
 
   Project: BTI2S
   Target: ESP32 (Arduino framework)
@@ -74,6 +74,7 @@ static constexpr adc1_channel_t BATTERY_ADC1_CHANNEL = ADC1_CHANNEL_6; // GPIO34
 // Runtime reporting can be toggled from Serial using: blebat=on / blebat=off
 static constexpr bool ENABLE_BLE_BATTERY_SERVICE = true;
 static constexpr bool BLE_BATTERY_REPORT_DEFAULT_ENABLED = true;
+static constexpr char BLE_BATTERY_NAME_SUFFIX[] = "-BAT";
 
 // Enable serial logging and serial command interface.
 // Set to false to reduce serial activity.
@@ -135,6 +136,7 @@ static bool gBatteryAdcCalibrated = false;
 
 #if ENABLE_BLE_BATTERY_SERVICE
 static BLECharacteristic *gBatteryLevelCharacteristic = nullptr;
+static String gBleBatteryDeviceName;
 #endif
 
 static BluetoothA2DPSink &getA2DPSink() {
@@ -202,8 +204,10 @@ static int batteryPercentFromVoltage(float packVoltage) {
 }
 
 #if ENABLE_BLE_BATTERY_SERVICE
-static void batteryBleInit() {
-  BLEDevice::init("BTI2S-Battery");
+static void batteryBleInit(const String &baseName) {
+  gBleBatteryDeviceName = baseName;
+  gBleBatteryDeviceName += BLE_BATTERY_NAME_SUFFIX;
+  BLEDevice::init(gBleBatteryDeviceName.c_str());
   BLEServer *server = BLEDevice::createServer();
   BLEService *batteryService = server->createService(BLEUUID((uint16_t)0x180F));
   gBatteryLevelCharacteristic = batteryService->createCharacteristic(
@@ -216,6 +220,9 @@ static void batteryBleInit() {
 
   BLEAdvertising *advertising = BLEDevice::getAdvertising();
   advertising->addServiceUUID(BLEUUID((uint16_t)0x180F));
+  advertising->setScanResponse(true);
+  advertising->setMinPreferred(0x06);  // iOS-friendly connection parameter hint
+  advertising->setMinPreferred(0x12);
   advertising->start();
 }
 
@@ -238,7 +245,7 @@ static void batteryInit() {
   gLastBatteryPollMs = 0;
 
 #if ENABLE_BLE_BATTERY_SERVICE
-  batteryBleInit();
+  batteryBleInit(btDeviceName);
 #endif
 }
 
@@ -660,6 +667,7 @@ void setup() {
 #if ENABLE_BLE_BATTERY_SERVICE
     Serial.printf("Battery BLE service enabled (0x180F/0x2A19), reporting %s. Toggle: blebat=on|off\n",
                   gBleBatteryReportingEnabled ? "ON" : "OFF");
+    Serial.printf("Battery BLE name: %s\n", gBleBatteryDeviceName.c_str());
 #else
     Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
 #endif
