@@ -119,6 +119,7 @@ static const battery_point_t battery_curve_4s[] = {
 
 static constexpr size_t BATTERY_CURVE_POINTS = sizeof(battery_curve_4s) / sizeof(battery_curve_4s[0]);
 static bool i2sInitialized = false;
+static bool i2sMclkActive = false;
 
 static float gBatteryPinVoltage = 0.0f;
 static float gBatteryPackVoltage = 0.0f;
@@ -480,8 +481,19 @@ static bool initI2SOutput() {
     return false;
   }
   if (i2s_set_pin(I2S_PORT, &i2sPins) != ESP_OK) {
-    i2s_driver_uninstall(I2S_PORT);
-    return false;
+    // Some ESP32 variants / clock-output routes do not support MCLK on arbitrary GPIOs.
+    // Keep BT audio path alive by falling back to BCK/LRCK/DATA-only output.
+    i2sPins.mck_io_num = I2S_PIN_NO_CHANGE;
+    if (i2s_set_pin(I2S_PORT, &i2sPins) != ESP_OK) {
+      i2s_driver_uninstall(I2S_PORT);
+      return false;
+    }
+    if (ENABLE_SERIAL_DEBUG) {
+      Serial.printf("WARN: MCLK pin %d unsupported by i2s_set_pin; continuing without MCLK.\n", I2S_MCLK_PIN);
+    }
+    i2sMclkActive = false;
+  } else {
+    i2sMclkActive = true;
   }
   i2s_zero_dma_buffer(I2S_PORT);
   i2sInitialized = true;
@@ -787,7 +799,12 @@ void setup() {
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
-    Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d MCLK:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN, I2S_MCLK_PIN);
+    Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d MCLK:%d (%s)\n",
+                  I2S_LRCK_PIN,
+                  I2S_BCK_PIN,
+                  I2S_DATA_PIN,
+                  I2S_MCLK_PIN,
+                  i2sMclkActive ? "active" : "disabled");
     Serial.printf("Battery ADC -> PIN:%d Rtop:%.0f Rbottom:%.0f\n", BATTERY_ADC_PIN, BATTERY_R_TOP_OHMS, BATTERY_R_BOTTOM_OHMS);
     Serial.printf("Battery startup -> pack=%.2fV soc=%d%% (first sample)\n", batteryGetVoltage(), batteryGetPercent());
 #if ENABLE_BLE_BATTERY_SERVICE
