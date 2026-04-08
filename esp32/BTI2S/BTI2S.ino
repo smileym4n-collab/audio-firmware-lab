@@ -8,7 +8,7 @@
 
   Summary:
   - Receives Bluetooth A2DP audio from a phone/computer.
-  - Sends audio out over I2S (no MCLK) on fixed pins.
+  - Sends audio out over I2S on fixed pins, including MCLK.
   - Bluetooth device name can be changed and stored in NVS via Serial command.
   - Serial command controls output volume.
 
@@ -31,6 +31,7 @@
 static constexpr int I2S_LRCK_PIN = 25;   // IO25 -> I2S LRCK / WS
 static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
 static constexpr int I2S_DATA_PIN = 13;   // IO13 -> I2S DATA OUT
+static constexpr int I2S_MCLK_PIN = 27;   // IO27 -> I2S MCLK
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
 #define BATTERY_ADC_PIN         34         // IO34 -> battery divider ADC input (input-only pin)
@@ -443,10 +444,12 @@ static void applyStartupMuteState() {
   pinMode(I2S_BCK_PIN, OUTPUT);
   pinMode(I2S_LRCK_PIN, OUTPUT);
   pinMode(I2S_DATA_PIN, OUTPUT);
+  pinMode(I2S_MCLK_PIN, OUTPUT);
 
   digitalWrite(I2S_BCK_PIN, LOW);
   digitalWrite(I2S_LRCK_PIN, LOW);
   digitalWrite(I2S_DATA_PIN, LOW);
+  digitalWrite(I2S_MCLK_PIN, LOW);
   delay(STARTUP_MUTE_HOLD_MS);
 }
 
@@ -471,6 +474,7 @@ static bool initI2SOutput() {
   i2sPins.ws_io_num = I2S_LRCK_PIN;
   i2sPins.data_out_num = I2S_DATA_PIN;
   i2sPins.data_in_num = I2S_PIN_NO_CHANGE;
+  i2sPins.mck_io_num = I2S_MCLK_PIN;
 
   if (i2s_driver_install(I2S_PORT, &i2sConfig, 0, nullptr) != ESP_OK) {
     return false;
@@ -788,7 +792,7 @@ void setup() {
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.printf("Bluetooth device name: %s\n", btDeviceName.c_str());
-    Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN);
+    Serial.printf("I2S pins -> LRCK:%d BCK:%d DATA:%d MCLK:%d\n", I2S_LRCK_PIN, I2S_BCK_PIN, I2S_DATA_PIN, I2S_MCLK_PIN);
     Serial.printf("Battery ADC -> PIN:%d Rtop:%.0f Rbottom:%.0f\n", BATTERY_ADC_PIN, BATTERY_R_TOP_OHMS, BATTERY_R_BOTTOM_OHMS);
     Serial.printf("Battery startup -> pack=%.2fV soc=%d%% (first sample)\n", batteryGetVoltage(), batteryGetPercent());
 #if ENABLE_BLE_BATTERY_SERVICE
