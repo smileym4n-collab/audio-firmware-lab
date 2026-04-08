@@ -702,11 +702,6 @@ static void handleSerialCommands() {
     return;
   }
 
-  if (line.equalsIgnoreCase("bat?")) {
-    printBatteryStatus();
-    return;
-  }
-
   if (line.startsWith("name=")) {
     String requestedName = line.substring(5);
     requestedName.trim();
