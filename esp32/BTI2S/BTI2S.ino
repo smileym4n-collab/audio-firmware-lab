@@ -31,7 +31,9 @@
 static constexpr int I2S_LRCK_PIN = 25;   // IO25 -> I2S LRCK / WS
 static constexpr int I2S_BCK_PIN = 26;    // IO26 -> I2S BCK / SCK
 static constexpr int I2S_DATA_PIN = 13;   // IO13 -> I2S DATA OUT
-static constexpr int I2S_MCLK_PIN = 27;   // IO27 -> I2S MCLK
+// NOTE: On classic ESP32, legacy I2S MCLK routing is only supported on limited clock-capable GPIOs.
+// GPIO0 is a practical default for MCLK on this target.
+static constexpr int I2S_MCLK_PIN = 0;    // IO0 -> I2S MCLK (boot-strap pin; keep external pull-up intact)
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 
 #define BATTERY_ADC_PIN         34         // IO34 -> battery divider ADC input (input-only pin)
