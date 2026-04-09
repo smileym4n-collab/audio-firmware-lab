@@ -15,7 +15,7 @@
   Serial usage (115200 baud):
   - name=YourNewName  -> store BT name and reboot
   - vol=0..100        -> set volume percent immediately
-  - Firmware volume cap limits max applied output gain (see MAX_OUTPUT_VOLUME_PERCENT).
+  - Firmware volume cap limits max applied output gain (default: DEFAULT_OUTPUT_VOLUME_CAP_PERCENT, runtime: cap=0..100).
 */
 
 #include <Arduino.h>
@@ -45,7 +45,7 @@ static constexpr unsigned long STARTUP_MUTE_HOLD_MS = 40;    // Hold I2S lines l
 static constexpr uint8_t DEFAULT_VOLUME_PERCENT = 70;         // Initial playback level after boot
 static constexpr uint8_t MIN_VOLUME_PERCENT = 0;              // Minimum allowed volume
 static constexpr uint8_t MAX_VOLUME_PERCENT = 100;            // Maximum allowed user-set volume
-static constexpr uint8_t MAX_OUTPUT_VOLUME_PERCENT = 85;      // Firmware output cap to reduce downstream DAC clipping
+static constexpr uint8_t DEFAULT_OUTPUT_VOLUME_CAP_PERCENT = 85; // Default firmware output cap to reduce downstream DAC clipping
 
 // ------------------------------
 // Bluetooth naming configuration
@@ -160,7 +160,8 @@ static BluetoothA2DPSink &getA2DPSink() {
 Preferences preferences;
 String btDeviceName;
 
-uint8_t volumePercent = DEFAULT_VOLUME_PERCENT;
+volatile uint8_t volumePercent = DEFAULT_VOLUME_PERCENT;
+volatile uint8_t outputVolumeCapPercent = DEFAULT_OUTPUT_VOLUME_CAP_PERCENT;
 
 static float batteryReadPinVoltage() {
   uint32_t adcSum = 0;
@@ -506,8 +507,40 @@ static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
   if (!i2sInitialized || data == nullptr || len == 0) {
     return;
   }
-  size_t bytesWritten = 0;
-  i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+
+  // Hard output limit enforced in PCM path so phone-side absolute volume cannot exceed firmware cap.
+  const uint8_t requestedVolumePercent = volumePercent;
+  const uint8_t capPercent = outputVolumeCapPercent;
+  const uint8_t effectivePercent = (requestedVolumePercent < capPercent) ? requestedVolumePercent : capPercent;
+
+  if (effectivePercent >= 100) {
+    size_t bytesWritten = 0;
+    i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+    return;
+  }
+
+  const int16_t *inSamples = reinterpret_cast<const int16_t *>(data);
+  const size_t totalSamples = static_cast<size_t>(len / sizeof(int16_t));
+  size_t sampleIndex = 0;
+
+  while (sampleIndex < totalSamples) {
+    int16_t scaledChunk[128];
+    const size_t chunkSamples = min(static_cast<size_t>(128), totalSamples - sampleIndex);
+
+    for (size_t i = 0; i < chunkSamples; ++i) {
+      const int16_t sample = inSamples[sampleIndex + i];
+      const int32_t scaled = (static_cast<int32_t>(sample) * static_cast<int32_t>(effectivePercent)) / 100;
+      scaledChunk[i] = static_cast<int16_t>(scaled);
+    }
+
+    size_t bytesWritten = 0;
+    i2s_write(I2S_PORT,
+              scaledChunk,
+              chunkSamples * sizeof(int16_t),
+              &bytesWritten,
+              portMAX_DELAY);
+    sampleIndex += chunkSamples;
+  }
 }
 
 static void i2sSampleRateCallback(uint16_t rate) {
@@ -521,9 +554,11 @@ static void i2sSampleRateCallback(uint16_t rate) {
 }
 
 static void applyOutputVolume() {
-  uint8_t appliedVolumePercent = volumePercent;
-  if (appliedVolumePercent > MAX_OUTPUT_VOLUME_PERCENT) {
-    appliedVolumePercent = MAX_OUTPUT_VOLUME_PERCENT;
+  const uint8_t requestedVolumePercent = volumePercent;
+  const uint8_t capPercent = outputVolumeCapPercent;
+  uint8_t appliedVolumePercent = requestedVolumePercent;
+  if (appliedVolumePercent > capPercent) {
+    appliedVolumePercent = capPercent;
   }
 
   getA2DPSink().set_volume(appliedVolumePercent);
@@ -531,9 +566,9 @@ static void applyOutputVolume() {
   if (ENABLE_SERIAL_DEBUG) {
       Serial.printf(
         "Volume requested: %u%%  applied: %u%%  cap: %u%%\n",
-        static_cast<unsigned>(volumePercent),
+        static_cast<unsigned>(requestedVolumePercent),
         static_cast<unsigned>(appliedVolumePercent),
-        static_cast<unsigned>(MAX_OUTPUT_VOLUME_PERCENT));
+        static_cast<unsigned>(capPercent));
   }
 }
 
@@ -598,6 +633,32 @@ static bool parseVolumePercent(const String &line, uint8_t &outVolume) {
   return true;
 }
 
+static bool parseOutputCapPercent(const String &line, uint8_t &outCap) {
+  if (!line.startsWith("cap=")) {
+    return false;
+  }
+
+  String valueText = line.substring(4);
+  valueText.trim();
+  if (valueText.isEmpty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < static_cast<size_t>(valueText.length()); ++i) {
+    if (!isDigit(valueText.charAt(static_cast<unsigned int>(i)))) {
+      return false;
+    }
+  }
+
+  long parsed = valueText.toInt();
+  if (parsed < MIN_VOLUME_PERCENT || parsed > MAX_VOLUME_PERCENT) {
+    return false;
+  }
+
+  outCap = static_cast<uint8_t>(parsed);
+  return true;
+}
+
 static void handleSerialCommands() {
   if (!ENABLE_SERIAL_DEBUG || !Serial.available()) {
     return;
@@ -611,6 +672,19 @@ static void handleSerialCommands() {
     volumePercent = requestedVolume;
     applyOutputVolume();
     Serial.printf("Volume set to %u%%\n", static_cast<unsigned>(volumePercent));
+    return;
+  }
+
+  uint8_t requestedCap = 0;
+  if (parseOutputCapPercent(line, requestedCap)) {
+    outputVolumeCapPercent = requestedCap;
+    applyOutputVolume();
+    Serial.printf("Volume cap set to %u%%\n", static_cast<unsigned>(outputVolumeCapPercent));
+    return;
+  }
+
+  if (line.equalsIgnoreCase("cap?")) {
+    Serial.printf("Volume cap: %u%%\n", static_cast<unsigned>(outputVolumeCapPercent));
     return;
   }
 
@@ -732,7 +806,7 @@ static void handleSerialCommands() {
     return;
   }
 
-  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
+  Serial.println("Unknown command. Use: name=YourNewName | vol=0..100 | cap=0..100 | cap? | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
 }
 
 
@@ -824,7 +898,7 @@ void setup() {
 #else
     Serial.println("Battery BLE service disabled to avoid changing BT audio behavior.");
 #endif
-    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
+    Serial.println("Ready. Commands: name=YourNewName | vol=0..100 | cap=0..100 | cap? | bat? | batfake? | batfake=0..100|on|off | blebat? | blebat=on|off");
     Serial.println("A2DP status will be logged on connect/disconnect events.");
   }
 }
