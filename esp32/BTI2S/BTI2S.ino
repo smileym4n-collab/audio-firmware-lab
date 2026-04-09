@@ -160,8 +160,8 @@ static BluetoothA2DPSink &getA2DPSink() {
 Preferences preferences;
 String btDeviceName;
 
-uint8_t volumePercent = DEFAULT_VOLUME_PERCENT;
-uint8_t outputVolumeCapPercent = DEFAULT_OUTPUT_VOLUME_CAP_PERCENT;
+volatile uint8_t volumePercent = DEFAULT_VOLUME_PERCENT;
+volatile uint8_t outputVolumeCapPercent = DEFAULT_OUTPUT_VOLUME_CAP_PERCENT;
 
 static float batteryReadPinVoltage() {
   uint32_t adcSum = 0;
@@ -507,8 +507,40 @@ static void i2sAudioDataCallback(const uint8_t *data, uint32_t len) {
   if (!i2sInitialized || data == nullptr || len == 0) {
     return;
   }
-  size_t bytesWritten = 0;
-  i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+
+  // Hard output limit enforced in PCM path so phone-side absolute volume cannot exceed firmware cap.
+  const uint8_t requestedVolumePercent = volumePercent;
+  const uint8_t capPercent = outputVolumeCapPercent;
+  const uint8_t effectivePercent = (requestedVolumePercent < capPercent) ? requestedVolumePercent : capPercent;
+
+  if (effectivePercent >= 100) {
+    size_t bytesWritten = 0;
+    i2s_write(I2S_PORT, data, len, &bytesWritten, portMAX_DELAY);
+    return;
+  }
+
+  const int16_t *inSamples = reinterpret_cast<const int16_t *>(data);
+  const size_t totalSamples = static_cast<size_t>(len / sizeof(int16_t));
+  size_t sampleIndex = 0;
+
+  while (sampleIndex < totalSamples) {
+    int16_t scaledChunk[128];
+    const size_t chunkSamples = min(static_cast<size_t>(128), totalSamples - sampleIndex);
+
+    for (size_t i = 0; i < chunkSamples; ++i) {
+      const int16_t sample = inSamples[sampleIndex + i];
+      const int32_t scaled = (static_cast<int32_t>(sample) * static_cast<int32_t>(effectivePercent)) / 100;
+      scaledChunk[i] = static_cast<int16_t>(scaled);
+    }
+
+    size_t bytesWritten = 0;
+    i2s_write(I2S_PORT,
+              scaledChunk,
+              chunkSamples * sizeof(int16_t),
+              &bytesWritten,
+              portMAX_DELAY);
+    sampleIndex += chunkSamples;
+  }
 }
 
 static void i2sSampleRateCallback(uint16_t rate) {
@@ -522,9 +554,11 @@ static void i2sSampleRateCallback(uint16_t rate) {
 }
 
 static void applyOutputVolume() {
-  uint8_t appliedVolumePercent = volumePercent;
-  if (appliedVolumePercent > outputVolumeCapPercent) {
-    appliedVolumePercent = outputVolumeCapPercent;
+  const uint8_t requestedVolumePercent = volumePercent;
+  const uint8_t capPercent = outputVolumeCapPercent;
+  uint8_t appliedVolumePercent = requestedVolumePercent;
+  if (appliedVolumePercent > capPercent) {
+    appliedVolumePercent = capPercent;
   }
 
   getA2DPSink().set_volume(appliedVolumePercent);
@@ -532,9 +566,9 @@ static void applyOutputVolume() {
   if (ENABLE_SERIAL_DEBUG) {
       Serial.printf(
         "Volume requested: %u%%  applied: %u%%  cap: %u%%\n",
-        static_cast<unsigned>(volumePercent),
+        static_cast<unsigned>(requestedVolumePercent),
         static_cast<unsigned>(appliedVolumePercent),
-        static_cast<unsigned>(outputVolumeCapPercent));
+        static_cast<unsigned>(capPercent));
   }
 }
 
