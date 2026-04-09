@@ -529,7 +529,7 @@ static void applyOutputVolume() {
   getA2DPSink().set_volume(appliedVolumePercent);
 
   if (ENABLE_SERIAL_DEBUG) {
-    Serial.printf(
+      Serial.printf(
         "Volume requested: %u%%  applied: %u%%  cap: %u%%\n",
         static_cast<unsigned>(volumePercent),
         static_cast<unsigned>(appliedVolumePercent),
@@ -737,6 +737,11 @@ static void handleSerialCommands() {
 
 
 static void onConnectionStateChanged(esp_a2d_connection_state_t state, void * /*ptr*/) {
+  if (state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
+    // Re-assert capped output volume on each connect in case the source sends its own volume state.
+    applyOutputVolume();
+  }
+
   if (!ENABLE_SERIAL_DEBUG) {
     return;
   }
