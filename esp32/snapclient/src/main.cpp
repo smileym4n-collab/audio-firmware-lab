@@ -1,17 +1,18 @@
 /*
-  Project: ESP32 Snapcast client prototype (generic dev board + external I2S DAC)
+  Project: ESP32 Snapcast client v2 (stability-first bench build)
+  Version: 0.2.0
   Framework: Arduino (PlatformIO)
 
-  Pin map (default bench wiring):
-    GPIO26 -> I2S BCLK (DAC BCK/SCK)
+  Pin map (standard ESP32 dev board -> PCM5102):
+    GPIO26 -> I2S BCLK (PCM5102 BCK/SCK)
     GPIO25 -> I2S LRCLK/WS
-    GPIO22 -> I2S DOUT (DAC DIN)
-    GND    -> DAC GND
-    3V3    -> DAC VCC (if 3.3V-compatible module)
+    GPIO22 -> I2S DOUT (PCM5102 DIN)
+    GND    -> PCM5102 GND
+    3V3    -> PCM5102 VCC (for 3.3V-compatible PCM5102 modules)
 
   Notes:
-  - MCLK is intentionally unused for first bring-up.
-  - Configure Wi-Fi and Snapserver IP in include/snapclient_config.h.
+  - No MCLK is used.
+  - Wi-Fi and Snapserver settings are in include/snapclient_config.h.
 */
 
 #include <WiFi.h>
@@ -25,8 +26,13 @@ WiFiClient wifiClient;
 I2SStream i2sOut;
 SnapClient snapClient(wifiClient, i2sOut, codec);
 
+TaskHandle_t snapTaskHandle = nullptr;
+volatile bool snapClientStarted = false;
+uint32_t lastWifiCheckMs = 0;
+
 bool connectWifiWithTimeout() {
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);  // reduce Wi-Fi induced audio jitter/dropouts
   WiFi.begin(SNAP_WIFI_SSID, SNAP_WIFI_PASSWORD);
 
   const uint32_t startMs = millis();
@@ -49,24 +55,18 @@ void configureI2SOutput() {
   i2sOut.begin(cfg);
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(200);
+void snapClientTask(void *parameter) {
+  (void)parameter;
 
-  Serial.println("\n[boot] ESP32 Snapclient prototype");
-  Serial.println("[wifi] connecting...");
-
-  if (!connectWifiWithTimeout()) {
-    Serial.println("\n[wifi] failed to connect, restarting...");
-    delay(1500);
-    ESP.restart();
+  for (;;) {
+    if (WiFi.status() == WL_CONNECTED && snapClientStarted) {
+      snapClient.doLoop();
+    }
+    vTaskDelay(pdMS_TO_TICKS(SNAP_TASK_DELAY_MS));
   }
+}
 
-  Serial.print("\n[wifi] connected, ip=");
-  Serial.println(WiFi.localIP());
-
-  configureI2SOutput();
-
+void startSnapClient() {
   snapClient.setWiFi(true);
   snapClient.setServerIP(SNAP_SERVER_IP);
   snapClient.snapProcessor().setServerPort(SNAP_SERVER_PORT);
@@ -83,16 +83,53 @@ void setup() {
     ESP.restart();
   }
 
+  snapClientStarted = true;
   Serial.println("[snapclient] running");
 }
 
-void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[wifi] link lost, restarting...");
-    delay(1000);
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  setCpuFrequencyMhz(SNAP_CPU_FREQ_MHZ);
+  Serial.println("\n[boot] ESP32 Snapclient v2 (stability-first)");
+  Serial.printf("[cpu] %u MHz\n", getCpuFrequencyMhz());
+  Serial.println("[wifi] connecting...");
+
+  if (!connectWifiWithTimeout()) {
+    Serial.println("\n[wifi] failed to connect, restarting...");
+    delay(1500);
     ESP.restart();
   }
 
-  snapClient.doLoop();
+  Serial.print("\n[wifi] connected, ip=");
+  Serial.println(WiFi.localIP());
+
+  configureI2SOutput();
+  startSnapClient();
+
+  xTaskCreatePinnedToCore(
+      snapClientTask,
+      "snap-loop",
+      SNAP_TASK_STACK_WORDS,
+      nullptr,
+      SNAP_TASK_PRIORITY,
+      &snapTaskHandle,
+      SNAP_TASK_CORE);
+}
+
+void loop() {
+  const uint32_t nowMs = millis();
+
+  if (nowMs - lastWifiCheckMs >= SNAP_WIFI_MONITOR_INTERVAL_MS) {
+    lastWifiCheckMs = nowMs;
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[wifi] link lost, restarting...");
+      delay(1000);
+      ESP.restart();
+    }
+  }
+
   delay(SNAP_MAIN_LOOP_DELAY_MS);
 }

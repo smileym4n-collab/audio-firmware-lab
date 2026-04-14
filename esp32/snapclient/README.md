@@ -1,80 +1,76 @@
-# ESP32 Snapcast Client Prototype (Generic Dev Board + External I2S DAC)
+# ESP32 Snapcast Client v2 (Standard ESP32 + PCM5102, Stability-First)
 
-Status: bench bring-up project for first-audio success.
+Version: **0.2.0**
 
-## Selected starting codebase
+This v2 is tuned for **first-success clean playback** on a **standard ESP32 dev board without PSRAM**.
 
-This project uses **`pschatzmann/arduino-snapclient`** (Arduino library port of the ESP32 Snapclient work) as the base.
+## Architecture decision (v2)
 
-Why this was chosen for your first milestone:
+### Chosen path: keep `pschatzmann/arduino-snapclient`, but harden runtime behavior
 
-- Fastest path to sound on a **generic ESP32 dev board** with a simple `platformio.ini` + single `main.cpp` flow.
-- Built around Arduino + AudioTools with straightforward I2S pin assignment in sketch code.
-- Minimal feature surface for bring-up (Wi-Fi + Snapserver + I2S output), matching your “simplicity first” requirement.
-- Reuses existing Snapclient implementation (not inventing a Snapclient from scratch).
+For your exact bench target (generic ESP32 dev board, already connecting to Snapserver, external PCM5102), the fastest path to stable audio is to keep the current stack and remove obvious runtime instability causes:
 
-Alternatives considered briefly:
+- Wi-Fi power save disabled (reduces bursty packet latency)
+- Snap processing moved into a dedicated FreeRTOS task (fewer loop-starvation events)
+- CPU fixed at 240 MHz
+- conservative loop/check timing and restart-on-link-loss policy
+- simple, explicit I2S output config for external DAC, no MCLK
 
-- `jorgenkraghjakobsen/snapclient` (ESP-IDF): very capable, but heavier bring-up and older workflow for a first bench prototype.
-- `sonocotta/esparagus-snapclient`: active and feature-rich, but optimized around multiple board presets/web installer flow rather than the smallest generic-dev-board prototype.
+Why not switch codebase immediately:
 
-## Framework/tooling
+- A full repo migration (ESP-IDF/other Snapclient ports) is higher risk for first bench success and takes longer to validate.
+- You already have discovery/connection working with this stack, so we optimize the path that is closest to “clean audio quickly”.
 
-- MCU: ESP32 dev board (`esp32dev` in PlatformIO)
-- Framework: Arduino
-- Build system: PlatformIO
+## Codec recommendation for non-PSRAM ESP32
 
-## Pin map (default wiring)
+Current code remains Opus-compatible because that is what your current implementation uses.
 
-- **BCLK**: GPIO26
-- **LRCLK / WS**: GPIO25
-- **DOUT**: GPIO22
-- **MCLK**: not used
+For **best reliability on non-PSRAM ESP32**, prefer a Snapserver stream profile that lowers decoder pressure:
 
-External DAC assumptions:
+1. Keep stereo, 16-bit.
+2. Prefer 48 kHz (or 44.1 kHz if your source chain is native 44.1).
+3. Use conservative Opus settings if Opus is retained (lower complexity / lower bitrate).
+4. If your Snapserver/client stack supports it cleanly, test PCM stream mode for this ESP32 client profile (higher network use, lower decode complexity).
 
-- I2S DAC accepts 16-bit stereo I2S stream.
-- DAC module provides line-level output.
-- DAC can operate without ESP32 MCLK for this first prototype.
+In practice, do this as an A/B bench test:
+- profile A: current Opus stream (tuned for low complexity)
+- profile B: PCM stream (if supported by your exact server/client combination)
+- choose whichever produces fewer dropouts on your actual Wi-Fi environment
 
-## Audio format target
+## Hardware target (unchanged)
 
-- Default set to **48 kHz, 16-bit, stereo**.
+- Board: standard ESP32 dev board (no PSRAM)
+- DAC: PCM5102 external I2S DAC
+- Wi-Fi only
+- No MCLK
 
-Why 48 kHz here:
+## Pin map
 
-- This aligns with common Snapcast ESP32 paths and avoids sample-format friction in initial bring-up.
-- If you specifically need 44.1 kHz later, we can tune server stream/sample format and retest after first success.
+- **GPIO26** -> I2S BCLK
+- **GPIO25** -> I2S LRCLK / WS
+- **GPIO22** -> I2S DOUT
 
-## Configuration
+## Project files
 
-Edit:
+- `platformio.ini` - release build config + library deps
+- `include/snapclient_config.h` - user-editable Wi-Fi/server/pin/runtime tuning
+- `src/main.cpp` - stability-first runtime implementation
 
-- `include/snapclient_config.h`
+## Build flags / memory-related settings used
 
-Set at minimum:
+- `build_type = release`
+- `-O2`
+- `-DCORE_DEBUG_LEVEL=1`
+- `-DCONFIG_SNAPCLIENT_USE_MDNS=false`
+- `-DCONFIG_NVS_FLASH=false`
 
-- `SNAP_WIFI_SSID`
-- `SNAP_WIFI_PASSWORD`
-- `SNAP_SERVER_IP`
+Runtime memory/CPU strategy:
 
-Optional:
+- dedicated Snap processing task stack: `8192` words
+- fixed CPU frequency: `240 MHz`
+- Wi-Fi sleep disabled
 
-- `SNAP_SERVER_PORT` (default `1704`)
-- `SNAP_CLIENT_NAME`
-- I2S pins/sample-rate constants
-
-## Dependencies
-
-Defined in `platformio.ini`:
-
-- `pschatzmann/arduino-audio-tools`
-- `pschatzmann/arduino-snapclient`
-- `pschatzmann/arduino-libopus`
-
-## Build and flash
-
-From this folder:
+## Flash / build procedure
 
 ```bash
 cd esp32/snapclient
@@ -83,48 +79,47 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-## First power-up test procedure
+## Required local configuration
 
-1. Wire ESP32 -> DAC with the pin map above.
-2. Confirm snapserver is reachable from ESP32 network.
-3. Edit Wi-Fi + server IP in `include/snapclient_config.h`.
-4. Build and flash.
-5. Open serial monitor and confirm:
-   - Wi-Fi connected and IP printed
+Edit `include/snapclient_config.h`:
+
+- `SNAP_WIFI_SSID`
+- `SNAP_WIFI_PASSWORD`
+- `SNAP_SERVER_IP`
+- optionally `SNAP_CLIENT_NAME`
+
+## Recommended Snapserver-side checks/changes
+
+1. Confirm stream format for this bench client is 16-bit stereo and 48 kHz (or 44.1 kHz if your chain is 44.1-native).
+2. If staying on Opus, set a conservative encoding profile first (do not optimize for minimum latency yet).
+3. If your stack supports PCM stream mode cleanly, test it for this client and compare glitch rate.
+4. Keep server and AP wired/nearby for initial validation to reduce Wi-Fi variability during tuning.
+
+## Test procedure (bench)
+
+1. Place ESP32 near AP to remove weak-signal effects.
+2. Flash firmware and open serial monitor.
+3. Confirm boot log shows:
+   - CPU 240 MHz
+   - Wi-Fi connected
    - Snapclient running
-6. In snapserver/snapweb, confirm new client appears.
-7. Start playback to snapserver stream and verify audible stereo output.
+4. Start a known clean audio source on Snapserver.
+5. Listen for at least 10-15 minutes:
+   - no persistent distortion
+   - no repeated stutter bursts
+6. Optional stress pass:
+   - run moderate Wi-Fi traffic in background and verify playback remains acceptable.
 
-## Snapserver-side note
+## Known limits of this v2
 
-For the first pass, use an Opus/PCM stream mode that your existing snapserver already serves successfully to other clients.
-If needed, keep stream format at 48 kHz stereo for easiest interoperability during bring-up.
+- still focused on single-purpose playback only (no UI/buttons/metadata)
+- no automatic adaptive codec switching in firmware
+- if distortion persists under all stream profiles, next step is controlled migration to an ESP-IDF-focused Snapclient implementation
 
-## Troubleshooting (most likely issues)
+## Change summary from v0.1.0 -> v0.2.0
 
-1. **No client appears in Snapserver**
-   - Verify `SNAP_SERVER_IP` and port `1704`.
-   - Confirm ESP32 and snapserver are on routable networks/VLANs.
-
-2. **Client appears but no sound**
-   - Recheck I2S wiring (BCLK/WS/DOUT swapped is common).
-   - Confirm DAC power/ground and analog output path.
-   - Verify DAC module supports no-MCLK operation.
-
-3. **Crackling/dropouts**
-   - Improve Wi-Fi signal and reduce AP congestion.
-   - Keep bench test near AP for first validation.
-
-4. **Boot loops at Wi-Fi stage**
-   - Recheck SSID/password.
-   - Ensure 2.4 GHz AP compatibility for ESP32.
-
-## Branch/repo steps used for this repo task
-
-```bash
-git checkout -b feat/esp32-snapclient-prototype
-# add files under esp32/snapclient
-# commit and open PR
-```
-
-(If your current local branch name differs, use an equivalent feature branch.)
+- Added stability-first tasking model (dedicated Snap processing task).
+- Disabled Wi-Fi sleep.
+- Fixed runtime CPU frequency to 240 MHz.
+- Simplified watchdog-friendly supervision loop.
+- Kept hardware wiring and no-MCLK PCM5102 target unchanged.
