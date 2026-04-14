@@ -6,12 +6,12 @@
 */
 
 // ---------- Wi-Fi ----------
-#define SNAP_WIFI_SSID "YOUR_WIFI_SSID"
-#define SNAP_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define SNAP_WIFI_SSID "TomEmmaWireless"
+#define SNAP_WIFI_PASSWORD "aw3s0m3w1ththr33s"
 
 // ---------- Snapserver ----------
 // Use a static IP for first bring-up to avoid mDNS complexity.
-#define SNAP_SERVER_IP IPAddress(192, 168, 1, 50)
+#define SNAP_SERVER_IP IPAddress(192, 168, 5, 130)
 #define SNAP_SERVER_PORT 1704
 #define SNAP_CLIENT_NAME "esp32-snapclient-bench"
 
