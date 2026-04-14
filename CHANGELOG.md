@@ -4,6 +4,9 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Added
+- `esp32/snapclient` new generic ESP32 dev-board Snapcast bench prototype (PlatformIO + Arduino) using `pschatzmann/arduino-snapclient` with configurable Wi-Fi, Snapserver IP, and I2S pins for external line-level DAC bring-up
+
 ### Changed
 - `esp32/BTI2S` removes rotary encoder input handling and encoder pin usage; volume control remains available via Serial commands (`vol=...`)
 - `esp32/BTI2S` version bumped to `0.12.0`
