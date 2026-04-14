@@ -4,6 +4,10 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Changed
+- `esp32/snapclient` stability-first v2 update for standard ESP32 (no PSRAM): dedicated Snap processing task, Wi-Fi sleep disabled, CPU fixed to 240 MHz, and simplified runtime supervision for cleaner playback
+- `esp32/snapclient` version bumped to `0.2.0`
+
 ### Added
 - `esp32/snapclient` new generic ESP32 dev-board Snapcast bench prototype (PlatformIO + Arduino) using `pschatzmann/arduino-snapclient` with configurable Wi-Fi, Snapserver IP, and I2S pins for external line-level DAC bring-up
 
