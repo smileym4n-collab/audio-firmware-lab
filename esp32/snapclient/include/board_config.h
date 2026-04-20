@@ -13,8 +13,9 @@ static constexpr int I2S_DOUT_PIN = 22;   // I2S serial data output to DAC DIN
 // GPIO0 is the least disruptive default here because GPIO1/GPIO3 are UART0.
 static constexpr int I2S_MCLK_PIN = 0;  // I2S master clock to external DAC MCLK/XTI
 
-// Boot-time mode select button. Default wiring is a simple switch to GND.
-// Hold or press this momentary button during boot to force Bluetooth mode.
+// Runtime mode-toggle button. Default wiring is a simple momentary switch to GND.
+// Cold boot always starts in Snapclient mode.
+// Pressing this button while the firmware is running toggles mode and reboots.
 static constexpr int BOOT_MODE_BUTTON_PIN = 32;
 static constexpr bool BOOT_MODE_BUTTON_USE_PULLUP = true;
 static constexpr int BOOT_MODE_BUTTON_ACTIVE_LEVEL = LOW;

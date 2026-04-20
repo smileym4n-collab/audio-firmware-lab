@@ -9,3 +9,4 @@
 - Updated the README and Snapserver notes for the v0.4.0 prototype revision.
 - Changed the boot selector to a momentary startup button with Snapclient as the default mode.
 - Added a dedicated mode-status LED pin with steady Snapclient indication and blinking Bluetooth indication.
+- Changed the mode button again so cold boot always starts in Snapclient and runtime button presses reboot into the opposite mode.

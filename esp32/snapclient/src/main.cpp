@@ -1,6 +1,6 @@
 /*
-  Project: ESP32 audio client v5 (WROVER-IE boot-button and mode LED update)
-  Version: 0.5.0
+  Project: ESP32 audio client v6 (runtime mode toggle and reboot selection)
+  Version: 0.6.0
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -8,12 +8,12 @@
     GPIO25 -> I2S LRCLK / WS
     GPIO22 -> I2S DOUT
     GPIO0  -> I2S MCLK
-    GPIO32 -> Momentary boot-mode button (active low with internal pull-up)
+    GPIO32 -> Runtime mode-toggle button (active low with internal pull-up)
     GPIO33 -> Mode-status LED
 
   Notes:
-  - Default boot path is Snapclient mode.
-  - Hold the momentary button low during boot for Bluetooth mode.
+  - Cold boot always starts in Snapclient mode.
+  - Press the runtime mode button to reboot into the other mode.
   - Snapclient mode drives the mode LED solid on.
   - Bluetooth mode blinks the mode LED.
   - Classic ESP32 MCLK routing is limited to GPIO0/GPIO1/GPIO3.
@@ -27,6 +27,7 @@
 #include "boot_mode_selector.h"
 #include "board_config.h"
 #include "mode_led_controller.h"
+#include "mode_switch_controller.h"
 #include "runtime_mode.h"
 #include "snapclient_config.h"
 #include "snapclient_mode.h"
@@ -37,6 +38,7 @@ audio_tools::MemoryManager gMemoryManager;
 SnapclientMode gSnapclientMode;
 BluetoothMode gBluetoothMode;
 ModeLedController gModeLed;
+ModeSwitchController gModeSwitch;
 RuntimeMode *gActiveMode = nullptr;
 
 void configurePsramAllocator() {
@@ -74,7 +76,10 @@ void setup() {
   Serial.printf("[boot] selected mode=%s\n", gActiveMode->name());
   Serial.printf("[led] pin=%d, Snapclient=solid on, Bluetooth=blink\n",
                 board_config::MODE_STATUS_LED_PIN);
+  Serial.printf("[button] pin=%d, press while running to toggle mode and reboot\n",
+                board_config::BOOT_MODE_BUTTON_PIN);
   gModeLed.setMode(selectedMode);
+  gModeSwitch.begin(selectedMode);
 
   if (!gActiveMode->begin()) {
     Serial.println("[boot] mode start failed, restarting...");
@@ -85,6 +90,7 @@ void setup() {
 
 void loop() {
   gModeLed.update();
+  gModeSwitch.update();
 
   if (gActiveMode != nullptr) {
     gActiveMode->loop();

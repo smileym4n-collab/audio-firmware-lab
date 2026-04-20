@@ -1,45 +1,43 @@
 #include "boot_mode_selector.h"
 
+#include <esp_system.h>
+
 #include "board_config.h"
 
+namespace {
+
+RTC_DATA_ATTR uint32_t gPendingModeMagic = 0;
+RTC_DATA_ATTR uint8_t gPendingModeValue = 0;
+
+}  // namespace
+
 app_config::OperatingMode detectOperatingMode() {
-  const int pinModeValue = board_config::BOOT_MODE_BUTTON_USE_PULLUP
-                               ? INPUT_PULLUP
-                               : INPUT_PULLDOWN;
-
-  pinMode(board_config::BOOT_MODE_BUTTON_PIN, pinModeValue);
-  delay(app_config::BOOT_MODE_SAMPLE_DELAY_MS);
-
-  uint8_t activeSamples = 0;
-  for (uint8_t sample = 0; sample < app_config::BOOT_MODE_STABLE_SAMPLES; ++sample) {
-    if (digitalRead(board_config::BOOT_MODE_BUTTON_PIN) ==
-        board_config::BOOT_MODE_BUTTON_ACTIVE_LEVEL) {
-      ++activeSamples;
-    }
-    delay(app_config::BOOT_MODE_SAMPLE_DELAY_MS);
-  }
-
-  const bool buttonActive =
-      activeSamples >= ((app_config::BOOT_MODE_STABLE_SAMPLES / 2) + 1);
-
-  Serial.printf("[boot] mode button pin=%d active_level=%d active_samples=%u/%u\n",
+  const auto resetReason = esp_reset_reason();
+  Serial.printf("[boot] mode button pin=%d active_level=%d\n",
                 board_config::BOOT_MODE_BUTTON_PIN,
-                board_config::BOOT_MODE_BUTTON_ACTIVE_LEVEL,
-                activeSamples,
-                app_config::BOOT_MODE_STABLE_SAMPLES);
-  Serial.println("[boot] default mode=Snapclient");
+                board_config::BOOT_MODE_BUTTON_ACTIVE_LEVEL);
+  Serial.println("[boot] cold boot default=Snapclient");
 
-  const auto selectedMode = buttonActive
-                                ? app_config::BOOT_MODE_WHEN_BUTTON_ACTIVE
-                                : app_config::BOOT_MODE_WHEN_BUTTON_INACTIVE;
+  if (resetReason == ESP_RST_SW &&
+      gPendingModeMagic == app_config::MODE_SWITCH_MAGIC &&
+      gPendingModeValue <= static_cast<uint8_t>(app_config::OperatingMode::Bluetooth)) {
+    const auto selectedMode =
+        static_cast<app_config::OperatingMode>(gPendingModeValue);
+    gPendingModeMagic = 0;
+    gPendingModeValue = 0;
 
-  if (buttonActive) {
-    Serial.printf("[boot] momentary boot button detected -> %s mode\n",
+    Serial.printf("[boot] software restart request -> %s mode\n",
                   app_config::operatingModeName(selectedMode));
-  } else {
-    Serial.printf("[boot] boot button not detected -> %s mode\n",
-                  app_config::operatingModeName(selectedMode));
+    return selectedMode;
   }
 
-  return selectedMode;
+  gPendingModeMagic = 0;
+  gPendingModeValue = 0;
+  Serial.println("[boot] no pending mode change -> Snapclient mode");
+  return app_config::OperatingMode::Snapclient;
+}
+
+void requestOperatingModeOnNextRestart(app_config::OperatingMode mode) {
+  gPendingModeMagic = app_config::MODE_SWITCH_MAGIC;
+  gPendingModeValue = static_cast<uint8_t>(mode);
 }
