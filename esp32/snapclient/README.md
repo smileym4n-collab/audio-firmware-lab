@@ -1,14 +1,16 @@
-# ESP32 Audio Client v6
+# ESP32 Audio Client v7
 
-Version: **0.6.0**
+Version: **0.7.0**
 
-This revision keeps the **ESP32-WROVER-IE-N16R8** target and changes the mode button behavior to a **runtime mode toggle**:
+This revision keeps the **ESP32-WROVER-IE-N16R8** target and adds a simple, central way to make **I2S MCLK optional**.
+
+Default behavior after this change:
 
 - **cold boot always starts in Snapclient mode**
 - **press the mode button while running to reboot into Bluetooth mode**
-- **press it again while running in Bluetooth mode to reboot back into Snapclient**
+- **MCLK is disabled by default**
 
-The button is no longer used as a boot-time selector. The system always comes up in Snapclient on power-up, and mode changes are requested while the firmware is running.
+That default suits many common **PCM5102-style DAC modules**, which usually do not require a separate MCLK line.
 
 ## Target hardware
 
@@ -27,13 +29,59 @@ Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapc
 | I2S BCLK | `GPIO26` | External DAC bit clock |
 | I2S LRCLK / WS | `GPIO25` | External DAC word select |
 | I2S DOUT | `GPIO22` | External DAC serial data input |
-| I2S MCLK | `GPIO0` | Default MCLK output pin |
+| I2S MCLK | `GPIO0` | Optional only, used only when `I2S_MCLK_ENABLED = true` |
 | Mode button | `GPIO32` | Runtime momentary mode-toggle button, active low with internal pull-up |
 | Mode LED | `GPIO33` | Single mode-status LED, active high by default |
 
+## MCLK configuration
+
+MCLK is now controlled entirely from [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
+
+Edit these fields:
+
+- `I2S_MCLK_ENABLED`
+- `I2S_MCLK_PIN`
+
+### Default setting
+
+```cpp
+static constexpr bool I2S_MCLK_ENABLED = false;
+static constexpr int I2S_MCLK_PIN = 0;
+```
+
+What that means:
+
+- by default, the firmware does **not** drive an MCLK pin
+- `GPIO0` is **not used by default**
+- the shared I2S setup passes **no MCLK pin** to the driver when MCLK is disabled
+
+### For common PCM5102 builds
+
+For many PCM5102-based modules, leave:
+
+- `I2S_MCLK_ENABLED = false`
+
+That keeps wiring simpler and avoids using `GPIO0`.
+
+### For DACs that require MCLK
+
+If your DAC explicitly requires MCLK:
+
+- set `I2S_MCLK_ENABLED = true`
+- set `I2S_MCLK_PIN` to the pin you want to use
+
+Current ESP32 caveat:
+
+- classic ESP32 only supports I2S MCLK on **GPIO0**, **GPIO1**, or **GPIO3**
+
+Practical recommendation:
+
+- `GPIO0` is the least disruptive default here because `GPIO1` and `GPIO3` are UART0
+- but `GPIO0` is also a boot-strapping pin, so the DAC must not pull it low during reset
+
 ## Mode button behavior
 
-The mode decision is no longer made from the button during cold boot.
+The mode button is a **runtime mode-toggle button**, not a boot selector.
 
 Actual behavior:
 
@@ -75,7 +123,8 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 ## Configuration files
 
 - [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Wi-Fi credentials, Snapserver address, Bluetooth device name, runtime tuning, mode-switch timing, and visible version values
-- [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable hardware pin assignments
+- [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable hardware pin assignments, including optional MCLK control
+- [src/audio_output_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/audio_output_controller.cpp) - shared I2S output setup for both Snapclient and Bluetooth modes, including the single MCLK enable/disable decision
 - [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, runtime mode setup, and LED initialization
 - [src/boot_mode_selector.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/boot_mode_selector.cpp) - boot-time mode resolution for cold boot vs requested software restart
 - [src/mode_switch_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_switch_controller.cpp) - runtime button press detection, debounce, mode toggle request, and reboot
@@ -100,32 +149,9 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 
 - entered after a runtime mode-button press and reboot
 - disables Wi-Fi and starts a Bluetooth A2DP sink only
-- advertises as `ESP32 Audio Receiver v6` by default
+- advertises as `CoolCube` by default
 - writes received stereo audio to the same external I2S DAC path
 - updates the I2S sample rate if the Bluetooth source changes it
-
-## MCLK note
-
-Classic ESP32 hardware only supports I2S MCLK on **GPIO0**, **GPIO1**, or **GPIO3** with the Arduino / ESP-IDF driver used here.
-
-For this revision the default MCLK pin is **GPIO0** because:
-
-- `GPIO1` and `GPIO3` are UART0 and would interfere with the serial console
-- `GPIO0` keeps boot logging available while still providing MCLK output
-
-Important caveat:
-
-- `GPIO0` is also a boot-strapping pin
-- your DAC's MCLK input must not pull `GPIO0` low during reset
-- use a DAC input that is high impedance at reset, or add buffering / series resistance if your hardware needs it
-
-## PSRAM use
-
-This version targets WROVER PSRAM intentionally.
-
-- the PlatformIO target is configured for a PSRAM-capable WROVER board profile
-- the firmware enables external-memory allocation for larger buffers
-- Snapclient output queue buffering is increased to take advantage of the larger memory budget
 
 ## Snapserver recommendations
 
@@ -167,11 +193,11 @@ pio run -e esp32-wrover-ie-n16r8
 - only one audio mode is active per boot
 - Bluetooth mode does not talk to Snapserver at all
 - Snapclient mode still depends on good Wi-Fi even with larger buffering
-- MCLK on `GPIO0` requires careful reset-time wiring because it is a strapping pin
+- when MCLK is enabled, classic ESP32 routing is limited and `GPIO0` needs careful reset-time wiring
 
-## Change summary from v0.5.0 -> v0.6.0
+## Change summary from v0.6.0 -> v0.7.0
 
-- Changed the button from a startup selector to a runtime mode-toggle input.
-- Made cold boot always start in Snapclient mode.
-- Added runtime button handling that reboots into the opposite mode.
-- Updated the documentation and visible version numbers for the new behavior.
+- Added a central `I2S_MCLK_ENABLED` switch so MCLK can be enabled or disabled cleanly.
+- Made the default build leave MCLK disabled, which avoids using `GPIO0`.
+- Kept the MCLK decision inside the shared I2S output setup path used by both Snapclient and Bluetooth modes.
+- Updated the documentation and visible version numbers for the optional-MCLK configuration.

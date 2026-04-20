@@ -5,17 +5,29 @@
 
 using namespace audio_tools;
 
+namespace {
+
+int configuredMclkPin() {
+  return board_config::I2S_MCLK_ENABLED ? board_config::I2S_MCLK_PIN : -1;
+}
+
+}  // namespace
+
 bool AudioOutputController::begin(uint32_t sampleRate) {
   fillConfig(config_,
              sampleRate,
              app_config::AUDIO_CHANNELS,
              app_config::AUDIO_BITS_PER_SAMPLE);
 
-  Serial.printf("[i2s] bclk=%d ws=%d dout=%d mclk=%d\n",
+  Serial.printf("[i2s] bclk=%d ws=%d dout=%d\n",
                 board_config::I2S_BCLK_PIN,
                 board_config::I2S_LRCLK_PIN,
-                board_config::I2S_DOUT_PIN,
-                board_config::I2S_MCLK_PIN);
+                board_config::I2S_DOUT_PIN);
+  if (board_config::I2S_MCLK_ENABLED) {
+    Serial.printf("[i2s] mclk=enabled on GPIO%d\n", board_config::I2S_MCLK_PIN);
+  } else {
+    Serial.println("[i2s] mclk=disabled");
+  }
   Serial.printf("[i2s] dma=%u x %u bytes, apll=%s\n",
                 app_config::I2S_DMA_BUFFER_COUNT,
                 app_config::I2S_DMA_BUFFER_SIZE,
@@ -55,7 +67,7 @@ void AudioOutputController::fillConfig(I2SConfig &cfg,
   cfg.pin_bck = board_config::I2S_BCLK_PIN;
   cfg.pin_ws = board_config::I2S_LRCLK_PIN;
   cfg.pin_data = board_config::I2S_DOUT_PIN;
-  cfg.pin_mck = board_config::I2S_MCLK_PIN;
+  cfg.pin_mck = configuredMclkPin();
   cfg.buffer_count = app_config::I2S_DMA_BUFFER_COUNT;
   cfg.buffer_size = app_config::I2S_DMA_BUFFER_SIZE;
   cfg.use_apll = app_config::I2S_USE_AUDIO_PLL;

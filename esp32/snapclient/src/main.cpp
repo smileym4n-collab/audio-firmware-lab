@@ -1,13 +1,13 @@
 /*
-  Project: ESP32 audio client v6 (runtime mode toggle and reboot selection)
-  Version: 0.6.0
+  Project: ESP32 audio client v7 (runtime mode toggle with optional MCLK)
+  Version: 0.7.0
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
     GPIO26 -> I2S BCLK
     GPIO25 -> I2S LRCLK / WS
     GPIO22 -> I2S DOUT
-    GPIO0  -> I2S MCLK
+    GPIO0  -> Optional I2S MCLK when enabled in board_config.h
     GPIO32 -> Runtime mode-toggle button (active low with internal pull-up)
     GPIO33 -> Mode-status LED
 
@@ -16,7 +16,8 @@
   - Press the runtime mode button to reboot into the other mode.
   - Snapclient mode drives the mode LED solid on.
   - Bluetooth mode blinks the mode LED.
-  - Classic ESP32 MCLK routing is limited to GPIO0/GPIO1/GPIO3.
+  - MCLK is optional and disabled by default for PCM5102-style builds.
+  - Classic ESP32 MCLK routing is limited to GPIO0/GPIO1/GPIO3 when enabled.
   - Wi-Fi and Snapserver settings are in include/snapclient_config.h.
   - Hardware pin assignments are in include/board_config.h.
 */

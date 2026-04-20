@@ -9,8 +9,14 @@ static constexpr int I2S_BCLK_PIN = 26;   // I2S bit clock to external DAC BCLK/
 static constexpr int I2S_LRCLK_PIN = 25;  // I2S word select / LRCLK to DAC WS
 static constexpr int I2S_DOUT_PIN = 22;   // I2S serial data output to DAC DIN
 
+// Optional I2S MCLK output.
+// Set I2S_MCLK_ENABLED to false for PCM5102-style DAC modules that do not need MCLK.
+// Set it to true only for DACs that explicitly require a dedicated MCLK signal.
+static constexpr bool I2S_MCLK_ENABLED = false;
+
 // Classic ESP32 only supports I2S MCLK on GPIO0, GPIO1, or GPIO3.
 // GPIO0 is the least disruptive default here because GPIO1/GPIO3 are UART0.
+// This pin is only used when I2S_MCLK_ENABLED is true.
 static constexpr int I2S_MCLK_PIN = 0;  // I2S master clock to external DAC MCLK/XTI
 
 // Runtime mode-toggle button. Default wiring is a simple momentary switch to GND.

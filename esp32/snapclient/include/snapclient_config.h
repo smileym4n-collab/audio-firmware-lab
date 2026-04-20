@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v6 configuration.
-  Version: 0.6.0
+  ESP32 audio client v7 configuration.
+  Version: 0.7.0
   Edit values below for your local network, stream, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v6";
-static constexpr char PROJECT_VERSION[] = "0.6.0";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v7";
+static constexpr char PROJECT_VERSION[] = "0.7.0";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -35,13 +35,13 @@ static constexpr uint32_t SNAP_WIFI_RETRY_DELAY_MS = 500;
 static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;
 
 // ---------- Snapserver ----------
-inline IPAddress snapServerIp() { return IPAddress(192, 168, 5, 252); }
+inline IPAddress snapServerIp() { return IPAddress(192, 168, 5, 106); }
 static constexpr uint16_t SNAP_SERVER_PORT = 1704;
 static constexpr char SNAP_HOST_NAME[] = "esp32-wrover-snapclient-v6";
 static constexpr char SNAP_CLIENT_NAME[] = "esp32-wrover-snapclient-v6";
 
 // ---------- Bluetooth ----------
-static constexpr char BLUETOOTH_DEVICE_NAME[] = "ESP32 Audio Receiver v6";
+static constexpr char BLUETOOTH_DEVICE_NAME[] = "CoolCube";
 static constexpr bool BLUETOOTH_AUTO_RECONNECT = false;
 static constexpr uint32_t BLUETOOTH_IDLE_DELAY_MS = 25;
 static constexpr uint32_t BLUETOOTH_DEFAULT_SAMPLE_RATE = 44100;
