@@ -1,48 +1,80 @@
 #pragma once
 
 /*
-  ESP32 Snapclient v3 configuration (PCM-first).
-  Version: 0.3.0
-  Edit values below for your local network and hardware.
+  ESP32 audio client v4 configuration.
+  Version: 0.4.0
+  Edit values below for your local network, stream, and Bluetooth naming.
 */
 
+#include <Arduino.h>
+
+namespace app_config {
+
+enum class OperatingMode : uint8_t { Snapclient, Bluetooth };
+
+inline const char *operatingModeName(OperatingMode mode) {
+  switch (mode) {
+    case OperatingMode::Snapclient:
+      return "Snapclient";
+    case OperatingMode::Bluetooth:
+      return "Bluetooth";
+    default:
+      return "Unknown";
+  }
+}
+
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v4";
+static constexpr char PROJECT_VERSION[] = "0.4.0";
+static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
+
 // ---------- Wi-Fi ----------
-#define SNAP_WIFI_SSID "TomEmmaWireless"
-#define SNAP_WIFI_PASSWORD "aw3s0m3w1ththr33s"
-#define SNAP_WIFI_CONNECT_TIMEOUT_MS 20000
-#define SNAP_WIFI_RETRY_DELAY_MS 500
-#define SNAP_WIFI_MONITOR_INTERVAL_MS 1000
+static constexpr char SNAP_WIFI_SSID[] = "TomEmmaWireless";
+static constexpr char SNAP_WIFI_PASSWORD[] = "aw3s0m3w1ththr33s";
+static constexpr uint32_t SNAP_WIFI_CONNECT_TIMEOUT_MS = 20000;
+static constexpr uint32_t SNAP_WIFI_RETRY_DELAY_MS = 500;
+static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;
 
 // ---------- Snapserver ----------
-// Use a static IP for bench bring-up.
-// For the v3 prototype, configure the matching Snapserver stream with codec=pcm.
-#define SNAP_SERVER_IP IPAddress(192, 168, 5, 252)
-#define SNAP_SERVER_PORT 1704
-#define SNAP_HOST_NAME "esp32-snapclient-v3"
-#define SNAP_CLIENT_NAME "esp32-snapclient-v3"
+inline IPAddress snapServerIp() { return IPAddress(192, 168, 5, 252); }
+static constexpr uint16_t SNAP_SERVER_PORT = 1704;
+static constexpr char SNAP_HOST_NAME[] = "esp32-wrover-snapclient-v4";
+static constexpr char SNAP_CLIENT_NAME[] = "esp32-wrover-snapclient-v4";
 
-// ---------- I2S pin map (ESP32 dev board -> PCM5102) ----------
-#define SNAP_I2S_BCLK_PIN 26   // BCLK / SCK
-#define SNAP_I2S_LRCLK_PIN 25  // LRCLK / WS
-#define SNAP_I2S_DOUT_PIN 22   // DIN on PCM5102
+// ---------- Bluetooth ----------
+static constexpr char BLUETOOTH_DEVICE_NAME[] = "ESP32 Audio Receiver v4";
+static constexpr bool BLUETOOTH_AUTO_RECONNECT = false;
+static constexpr uint32_t BLUETOOTH_IDLE_DELAY_MS = 25;
+static constexpr uint32_t BLUETOOTH_DEFAULT_SAMPLE_RATE = 44100;
+
+// ---------- Boot-time mode selection ----------
+static constexpr OperatingMode BOOT_MODE_WHEN_BUTTON_ACTIVE =
+    OperatingMode::Bluetooth;
+static constexpr OperatingMode BOOT_MODE_WHEN_BUTTON_INACTIVE =
+    OperatingMode::Snapclient;
+static constexpr uint8_t BOOT_MODE_STABLE_SAMPLES = 8;
+static constexpr uint32_t BOOT_MODE_SAMPLE_DELAY_MS = 5;
 
 // ---------- Audio format ----------
 // Keep this aligned with the Snapserver PCM stream profile.
-#define SNAP_AUDIO_SAMPLE_RATE 44100
-#define SNAP_AUDIO_BITS_PER_SAMPLE 16
-#define SNAP_AUDIO_CHANNELS 2
+static constexpr uint32_t AUDIO_SAMPLE_RATE = 48000;
+static constexpr uint8_t AUDIO_BITS_PER_SAMPLE = 16;
+static constexpr uint8_t AUDIO_CHANNELS = 2;
 
 // ---------- I2S / DMA tuning ----------
-// Larger DMA buffers reduce underrun risk on plain ESP32 boards without PSRAM.
-#define SNAP_I2S_DMA_BUFFER_COUNT 12
-#define SNAP_I2S_DMA_BUFFER_SIZE 1024
-#define SNAP_I2S_USE_APLL false
+static constexpr uint8_t I2S_DMA_BUFFER_COUNT = 16;
+static constexpr uint16_t I2S_DMA_BUFFER_SIZE = 1024;
+static constexpr bool I2S_USE_AUDIO_PLL = true;
 
-// ---------- Runtime stability tuning ----------
-#define SNAP_CPU_FREQ_MHZ 240
-#define SNAP_TASK_CORE 1
-#define SNAP_TASK_PRIORITY 4
-#define SNAP_TASK_STACK_WORDS 8192
-#define SNAP_TASK_DELAY_MS 1
-#define SNAP_MAIN_LOOP_DELAY_MS 1
-#define SNAP_USE_FAST_LOOP true
+// ---------- Buffering / stability ----------
+static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
+static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 60;
+static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
+
+// ---------- Runtime ----------
+static constexpr uint32_t CPU_FREQ_MHZ = 240;
+static constexpr uint32_t SERIAL_BAUD = 115200;
+static constexpr uint32_t MAIN_LOOP_DELAY_MS = 1;
+static constexpr bool SNAP_USE_FAST_LOOP = true;
+static constexpr uint32_t RESTART_DELAY_MS = 1500;
+
+}  // namespace app_config

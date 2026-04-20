@@ -1,55 +1,122 @@
-# ESP32 Snapcast Client v3 (Standard ESP32 + PCM5102, PCM-First)
+# ESP32 Audio Client v4
 
-Version: **0.3.0**
+Version: **0.4.0**
 
-This v3 prototype targets a **standard ESP32 dev board without PSRAM** driving a **PCM5102 DAC** over I2S, with the project tuned for **clean, stable playback** by removing Opus decode from the firmware path.
+This prototype revision moves the project to an **ESP32-WROVER-IE-N16R8** target and keeps the firmware as a single codebase that boots into either:
 
-## Architecture decision (v3)
+- **Snapclient mode** for Wi-Fi Snapcast playback
+- **Bluetooth mode** for standalone A2DP sink playback
 
-### Chosen path: keep `pschatzmann/arduino-snapclient`, switch the stream to PCM
+The focus for v4 is stable audio on the WROVER hardware: PSRAM-backed buffering where it helps, a shared external I2S DAC path with **MCLK enabled**, and a simple boot-time mode select button.
 
-The current checkout already had working Snapcast transport on ESP32, but it was built around `codec-opus`, which is the expensive part on this hardware class. For the v3 prototype, the firmware now keeps the proven transport path and changes the payload strategy:
+## Target hardware
 
-- remove the Opus dependency from the build
-- decode only Snapserver `pcm` streams using the lightweight WAV/PCM path already supported by the library
-- keep the ESP32 locked at 240 MHz
-- disable Wi-Fi sleep
-- keep the dedicated Snap processing task
-- increase I2S DMA buffering for cleaner playback on no-PSRAM boards
-- keep the PCM5102 wiring and no-MCLK target unchanged
-
-This avoids a bigger codebase migration while still replacing the part that is most likely to overload a plain ESP32.
-
-## Hardware target
-
-- Board: standard ESP32 dev board
-- PSRAM: none
-- DAC: PCM5102 external I2S DAC
-- No MCLK
+- Module: **ESP32-WROVER-IE-N16R8**
+- Flash / PSRAM target: **16 MB flash / 8 MB PSRAM**
+- Audio output: external I2S DAC only
+- On-chip DAC: not used
+- Antenna: external antenna version of WROVER-IE
 
 ## Pin map
 
-- **GPIO26** -> I2S BCLK
-- **GPIO25** -> I2S LRCLK / WS
-- **GPIO22** -> I2S DOUT
+Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
 
-## Project files
+| Function | GPIO | Notes |
+| --- | --- | --- |
+| I2S BCLK | `GPIO26` | External DAC bit clock |
+| I2S LRCLK / WS | `GPIO25` | External DAC word select |
+| I2S DOUT | `GPIO22` | External DAC serial data input |
+| I2S MCLK | `GPIO0` | Default MCLK output pin |
+| Boot mode button | `GPIO32` | Active-low with internal pull-up |
+| Status LED | `-1` | Disabled by default |
 
-- `platformio.ini` - PlatformIO environment and libraries
-- `include/snapclient_config.h` - local Wi-Fi, server, audio, and DMA tuning
-- `src/main.cpp` - v3 PCM-first firmware
-- `docs/snapserver-v3.md` - required Snapserver-side configuration changes
-- `CHANGELOG.md` - project change log
+## Boot mode selection
+
+The firmware reads one GPIO at startup and stays in that mode until the next reset.
+
+| Button state at boot | GPIO32 level | Selected mode |
+| --- | --- | --- |
+| Released / open | `HIGH` | Snapclient over Wi-Fi |
+| Pressed to GND | `LOW` | Bluetooth-only audio receiver |
+
+Default wiring:
+
+- connect one side of the button to `GPIO32`
+- connect the other side to `GND`
+- the firmware enables the internal pull-up, so no external pull-up is required for the default arrangement
+
+The selection logic is implemented as a stable multi-sample read so brief contact bounce at power-up does not flip modes accidentally.
+
+## Configuration files
+
+- [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Wi-Fi credentials, Snapserver address, Bluetooth device name, buffering, and versioned runtime settings
+- [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable board pin assignments
+- [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, and mode selection
+- [src/snapclient_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapclient_mode.cpp) - Wi-Fi Snapclient mode
+- [src/bluetooth_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/bluetooth_mode.cpp) - Bluetooth A2DP sink mode
+- [docs/snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) - Snapserver-side recommendations for v4
 
 ## Firmware behavior
 
-- expects a Snapserver stream configured as **PCM**
-- expects **48 kHz / 16-bit / stereo** by default
-- uses the Snapclient library's WAV/PCM header path instead of Opus decode
-- uses larger I2S DMA buffers to reduce underruns
-- restarts on Wi-Fi loss rather than trying to limp along in a broken state
+### Snapclient mode
+
+- connects to Wi-Fi as a station
+- starts the existing Snapclient transport path
+- expects a **PCM** Snapserver stream
+- uses larger buffering suited to the WROVER target
+- enables PSRAM-backed allocation for larger buffers
+- restarts on Wi-Fi loss instead of trying to continue in a bad state
+
+### Bluetooth mode
+
+- disables Wi-Fi and starts a Bluetooth A2DP sink only
+- advertises as `ESP32 Audio Receiver v4` by default
+- writes received stereo audio to the same external I2S DAC path
+- updates the I2S sample rate if the Bluetooth source changes it
+
+## MCLK note
+
+Classic ESP32 hardware only supports I2S MCLK on **GPIO0**, **GPIO1**, or **GPIO3** with the Arduino / ESP-IDF driver used here.
+
+For this revision the default MCLK pin is **GPIO0** because:
+
+- `GPIO1` and `GPIO3` are UART0 and would interfere with the serial console
+- `GPIO0` keeps boot logging available while still providing MCLK output
+
+Important caveat:
+
+- `GPIO0` is also a boot-strapping pin
+- your DAC's MCLK input must not pull `GPIO0` low during reset
+- use a DAC input that is high impedance at reset, or add buffering / series resistance if your hardware needs it
+
+## PSRAM use
+
+This version targets WROVER PSRAM intentionally.
+
+- the PlatformIO target is configured for a PSRAM-capable WROVER board profile
+- the firmware enables external-memory allocation for larger buffers
+- Snapclient output queue buffering is increased to take advantage of the larger memory budget
+
+## Snapserver recommendations
+
+Snapclient mode is intended for a **PCM** stream rather than Opus on this ESP32 target.
+
+Recommended stream settings:
+
+- codec: `pcm`
+- sample format: `48000:16:2`
+
+See [snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) for a concrete example.
+
+Practical recommendations:
+
+- keep the Snapserver on wired Ethernet if possible
+- keep the ESP32 on strong 2.4 GHz Wi-Fi
+- avoid testing initial bring-up on a congested access point
 
 ## Build / flash
+
+The project now defaults to the WROVER target in `platformio.ini`.
 
 ```bash
 cd esp32/snapclient
@@ -58,62 +125,24 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-## Required local configuration
+If you want to call the environment explicitly:
 
-Edit [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h):
+```bash
+pio run -e esp32-wrover-ie-n16r8
+```
 
-- `SNAP_WIFI_SSID`
-- `SNAP_WIFI_PASSWORD`
-- `SNAP_SERVER_IP`
-- optionally `SNAP_HOST_NAME`
-- optionally `SNAP_CLIENT_NAME`
+## Limitations and caveats
 
-## Required Snapserver-side changes
+- Snapclient mode and Bluetooth mode are **boot-selected**, not live-switchable
+- only one audio mode is active per boot
+- Bluetooth mode does not talk to Snapserver at all
+- Snapclient mode still depends on good Wi-Fi even with larger buffering
+- MCLK on `GPIO0` requires careful reset-time wiring because it is a strapping pin
 
-This firmware is no longer intended for an Opus stream on this ESP32 target. Your Snapserver source for this client should be configured as:
+## Change summary from v0.3.0 -> v0.4.0
 
-- codec: `pcm`
-- sample format: `48000:16:2`
-
-See [snapserver-v3.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver-v3.md) for concrete examples.
-
-Important tradeoff:
-
-- PCM removes the decode load from the ESP32
-- PCM uses much more network bandwidth than Opus
-- 48 kHz / 16-bit / stereo PCM is about **1.536 Mbit/s** before protocol overhead
-
-For best results:
-
-- keep the Snapserver on wired Ethernet if possible
-- keep the ESP32 on strong 2.4 GHz Wi-Fi with a good signal
-- avoid testing first bring-up through a congested AP
-
-## Bench test checklist
-
-1. Configure Snapserver for PCM as documented in `docs/snapserver-v3.md`.
-2. Flash the firmware.
-3. Open the serial monitor.
-4. Confirm boot output shows:
-   - ESP32 Snapclient v3
-   - Wi-Fi connected
-   - expected audio format `48000 Hz, 16-bit, 2 ch, codec=pcm`
-5. Start playback on Snapserver.
-6. Listen for at least 10 to 15 minutes and check for:
-   - no persistent distortion
-   - no repeated stutter bursts
-   - no server-side fallback to Opus
-
-## Known limits
-
-- this remains a bench-focused, single-purpose player
-- there is no UI or metadata support
-- stability now depends more on Wi-Fi quality and available network bandwidth than on CPU decode headroom
-- if PCM still glitches badly, the next step is likely transport/jitter tuning or moving to wired Ethernet rather than reintroducing Opus
-
-## Change summary from v0.2.0 -> v0.3.0
-
-- Replaced the firmware's Opus decoder path with the Snapclient WAV/PCM decoder path.
-- Removed the Opus library dependency from the build.
-- Added explicit I2S DMA tuning for the PCM5102 target.
-- Documented the required Snapserver `codec=pcm` configuration.
+- Retargeted the project from a plain ESP32 dev board to **ESP32-WROVER-IE-N16R8**.
+- Added PSRAM-aware buffering and a WROVER-specific PlatformIO target.
+- Added shared I2S output with **MCLK enabled** for an external DAC.
+- Added boot-time mode selection between Wi-Fi Snapclient and Bluetooth A2DP sink modes.
+- Centralized board pin assignments into `include/board_config.h`.
