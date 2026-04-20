@@ -1,13 +1,13 @@
-# ESP32 Audio Client v4
+# ESP32 Audio Client v5
 
-Version: **0.4.0**
+Version: **0.5.0**
 
-This prototype revision moves the project to an **ESP32-WROVER-IE-N16R8** target and keeps the firmware as a single codebase that boots into either:
+This revision keeps the **ESP32-WROVER-IE-N16R8** target and refines startup behavior for a **momentary boot button**:
 
-- **Snapclient mode** for Wi-Fi Snapcast playback
-- **Bluetooth mode** for standalone A2DP sink playback
+- **default boot = Snapclient mode**
+- **hold / press the boot button during startup = Bluetooth mode**
 
-The focus for v4 is stable audio on the WROVER hardware: PSRAM-backed buffering where it helps, a shared external I2S DAC path with **MCLK enabled**, and a simple boot-time mode select button.
+It also adds a single, centralized **mode-status LED** so the active mode is obvious without needing the serial console.
 
 ## Target hardware
 
@@ -27,39 +27,64 @@ Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapc
 | I2S LRCLK / WS | `GPIO25` | External DAC word select |
 | I2S DOUT | `GPIO22` | External DAC serial data input |
 | I2S MCLK | `GPIO0` | Default MCLK output pin |
-| Boot mode button | `GPIO32` | Active-low with internal pull-up |
-| Status LED | `-1` | Disabled by default |
+| Mode button | `GPIO32` | Momentary boot button, active low with internal pull-up |
+| Mode LED | `GPIO33` | Single mode-status LED, active high by default |
 
 ## Boot mode selection
 
-The firmware reads one GPIO at startup and stays in that mode until the next reset.
+The startup decision is made in [boot_mode_selector.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/boot_mode_selector.cpp).
 
-| Button state at boot | GPIO32 level | Selected mode |
+Default behavior:
+
+- if the button is **not** pressed during startup, boot **Snapclient**
+- if the momentary button **is** detected active during startup, boot **Bluetooth**
+
+At boot the firmware performs a short stable-read check rather than a single raw GPIO sample, so the decision is still simple but less sensitive to switch bounce.
+
+| Button state during startup | GPIO32 level | Selected mode |
 | --- | --- | --- |
-| Released / open | `HIGH` | Snapclient over Wi-Fi |
-| Pressed to GND | `LOW` | Bluetooth-only audio receiver |
+| Not pressed | `HIGH` | Snapclient mode |
+| Pressed / held to GND | `LOW` | Bluetooth mode |
 
-Default wiring:
+Recommended wiring for the momentary boot button:
 
-- connect one side of the button to `GPIO32`
+- connect one side of the push button to `GPIO32`
 - connect the other side to `GND`
 - the firmware enables the internal pull-up, so no external pull-up is required for the default arrangement
 
-The selection logic is implemented as a stable multi-sample read so brief contact bounce at power-up does not flip modes accidentally.
+## Mode LED behavior
+
+The mode LED behavior is intentionally simple:
+
+- **Snapclient mode**: LED **solid ON**
+- **Bluetooth mode**: LED **blinks continuously**
+
+The LED logic is implemented in [mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp).
+
+Recommended default LED wiring:
+
+- connect `GPIO33` through a resistor to the LED anode
+- connect the LED cathode to `GND`
+- this matches the default active-high configuration
+
+If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
 
 ## Configuration files
 
-- [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Wi-Fi credentials, Snapserver address, Bluetooth device name, buffering, and versioned runtime settings
-- [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable board pin assignments
-- [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, and mode selection
+- [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Wi-Fi credentials, Snapserver address, Bluetooth device name, runtime tuning, boot defaults, LED timing, and visible version values
+- [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable hardware pin assignments
+- [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, startup decision, and LED initialization
+- [src/boot_mode_selector.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/boot_mode_selector.cpp) - momentary boot-button read and explicit mode selection
+- [src/mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp) - mode LED behavior
 - [src/snapclient_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapclient_mode.cpp) - Wi-Fi Snapclient mode
 - [src/bluetooth_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/bluetooth_mode.cpp) - Bluetooth A2DP sink mode
-- [docs/snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) - Snapserver-side recommendations for v4
+- [docs/snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) - Snapserver-side recommendations
 
 ## Firmware behavior
 
 ### Snapclient mode
 
+- this is the normal default boot path
 - connects to Wi-Fi as a station
 - starts the existing Snapclient transport path
 - expects a **PCM** Snapserver stream
@@ -69,8 +94,9 @@ The selection logic is implemented as a stable multi-sample read so brief contac
 
 ### Bluetooth mode
 
+- entered only when the momentary button is detected during startup
 - disables Wi-Fi and starts a Bluetooth A2DP sink only
-- advertises as `ESP32 Audio Receiver v4` by default
+- advertises as `ESP32 Audio Receiver v5` by default
 - writes received stereo audio to the same external I2S DAC path
 - updates the I2S sample rate if the Bluetooth source changes it
 
@@ -116,7 +142,7 @@ Practical recommendations:
 
 ## Build / flash
 
-The project now defaults to the WROVER target in `platformio.ini`.
+The project defaults to the WROVER target in `platformio.ini`.
 
 ```bash
 cd esp32/snapclient
@@ -133,16 +159,15 @@ pio run -e esp32-wrover-ie-n16r8
 
 ## Limitations and caveats
 
-- Snapclient mode and Bluetooth mode are **boot-selected**, not live-switchable
+- Snapclient mode and Bluetooth mode are still **boot-selected**, not live-switchable
 - only one audio mode is active per boot
 - Bluetooth mode does not talk to Snapserver at all
 - Snapclient mode still depends on good Wi-Fi even with larger buffering
 - MCLK on `GPIO0` requires careful reset-time wiring because it is a strapping pin
 
-## Change summary from v0.3.0 -> v0.4.0
+## Change summary from v0.4.0 -> v0.5.0
 
-- Retargeted the project from a plain ESP32 dev board to **ESP32-WROVER-IE-N16R8**.
-- Added PSRAM-aware buffering and a WROVER-specific PlatformIO target.
-- Added shared I2S output with **MCLK enabled** for an external DAC.
-- Added boot-time mode selection between Wi-Fi Snapclient and Bluetooth A2DP sink modes.
-- Centralized board pin assignments into `include/board_config.h`.
+- Changed the startup control to a **momentary** boot button with **Snapclient as the default path**.
+- Made the boot decision explicit in code: button active at boot selects Bluetooth, otherwise Snapclient.
+- Added a dedicated mode LED pin and simple LED indication for each mode.
+- Updated documentation and centralized hardware definitions for the boot button and mode LED.

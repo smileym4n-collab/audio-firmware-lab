@@ -14,12 +14,14 @@ static constexpr int I2S_DOUT_PIN = 22;   // I2S serial data output to DAC DIN
 static constexpr int I2S_MCLK_PIN = 0;  // I2S master clock to external DAC MCLK/XTI
 
 // Boot-time mode select button. Default wiring is a simple switch to GND.
+// Hold or press this momentary button during boot to force Bluetooth mode.
 static constexpr int BOOT_MODE_BUTTON_PIN = 32;
 static constexpr bool BOOT_MODE_BUTTON_USE_PULLUP = true;
 static constexpr int BOOT_MODE_BUTTON_ACTIVE_LEVEL = LOW;
 
-// Optional status LED. Set to -1 when the module/carrier has no usable LED.
-static constexpr int STATUS_LED_PIN = -1;
-static constexpr bool STATUS_LED_ACTIVE_HIGH = true;
+// Single mode-status LED. Default wiring is LED + resistor from GPIO to GND.
+// Change MODE_STATUS_LED_ACTIVE_HIGH if your LED is wired to 3V3 instead.
+static constexpr int MODE_STATUS_LED_PIN = 33;
+static constexpr bool MODE_STATUS_LED_ACTIVE_HIGH = true;
 
 }  // namespace board_config

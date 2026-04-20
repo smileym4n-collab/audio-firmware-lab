@@ -22,18 +22,24 @@ app_config::OperatingMode detectOperatingMode() {
   const bool buttonActive =
       activeSamples >= ((app_config::BOOT_MODE_STABLE_SAMPLES / 2) + 1);
 
-  Serial.printf("[boot] mode button pin=%d active_samples=%u/%u\n",
+  Serial.printf("[boot] mode button pin=%d active_level=%d active_samples=%u/%u\n",
                 board_config::BOOT_MODE_BUTTON_PIN,
+                board_config::BOOT_MODE_BUTTON_ACTIVE_LEVEL,
                 activeSamples,
                 app_config::BOOT_MODE_STABLE_SAMPLES);
+  Serial.println("[boot] default mode=Snapclient");
 
   const auto selectedMode = buttonActive
                                 ? app_config::BOOT_MODE_WHEN_BUTTON_ACTIVE
                                 : app_config::BOOT_MODE_WHEN_BUTTON_INACTIVE;
 
-  Serial.printf("[boot] mode button %s -> %s mode\n",
-                buttonActive ? "active" : "inactive",
-                app_config::operatingModeName(selectedMode));
+  if (buttonActive) {
+    Serial.printf("[boot] momentary boot button detected -> %s mode\n",
+                  app_config::operatingModeName(selectedMode));
+  } else {
+    Serial.printf("[boot] boot button not detected -> %s mode\n",
+                  app_config::operatingModeName(selectedMode));
+  }
 
   return selectedMode;
 }
