@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
-- Switched the ESP32 v3 prototype from Opus decoding to PCM-first Snapserver playback.
-- Removed the Opus build dependency and increased I2S DMA buffering for cleaner playback on standard ESP32 hardware.
-- Added Snapserver-side configuration notes for `codec=pcm` and `sampleformat=48000:16:2`.
+- Retargeted the firmware to the ESP32-WROVER-IE-N16R8 with a project-local PlatformIO board definition and 16 MB flash partitioning.
+- Added centralized board pin mapping, including external DAC MCLK output and a boot-time mode select button.
+- Split the firmware into boot-selected Snapclient and Bluetooth receiver modes while keeping the external I2S DAC path shared.
+- Enabled PSRAM-aware buffering for more stable playback on the WROVER hardware.
+- Updated the README and Snapserver notes for the v0.4.0 prototype revision.

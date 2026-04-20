@@ -1,158 +1,105 @@
 /*
-  Project: ESP32 Snapcast client v3 (PCM-first prototype for stable playback)
-  Version: 0.3.0
+  Project: ESP32 audio client v4 (WROVER-IE Snapclient + Bluetooth prototype)
+  Version: 0.4.0
   Framework: Arduino (PlatformIO)
 
-  Pin map (standard ESP32 dev board -> PCM5102):
-    GPIO26 -> I2S BCLK (PCM5102 BCK/SCK)
-    GPIO25 -> I2S LRCLK/WS
-    GPIO22 -> I2S DOUT (PCM5102 DIN)
-    GND    -> PCM5102 GND
-    3V3    -> PCM5102 VCC (for 3.3V-compatible PCM5102 modules)
+  Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
+    GPIO26 -> I2S BCLK
+    GPIO25 -> I2S LRCLK / WS
+    GPIO22 -> I2S DOUT
+    GPIO0  -> I2S MCLK
+    GPIO32 -> Boot mode select button (active low with internal pull-up)
 
   Notes:
-  - No MCLK is used.
-  - This v3 build is intended for Snapserver streams configured with codec=pcm.
+  - Boot with the button released for Snapclient mode.
+  - Boot with the button held low for Bluetooth receiver mode.
+  - Classic ESP32 MCLK routing is limited to GPIO0/GPIO1/GPIO3.
   - Wi-Fi and Snapserver settings are in include/snapclient_config.h.
+  - Hardware pin assignments are in include/board_config.h.
 */
 
-#include <WiFi.h>
+#include "AudioTools/AudioLibs/MemoryManager.h"
 
-#include "AudioTools.h"
-#include "AudioTools/AudioCodecs/CodecWAV.h"
-#include "SnapClient.h"
+#include "bluetooth_mode.h"
+#include "boot_mode_selector.h"
+#include "board_config.h"
+#include "runtime_mode.h"
 #include "snapclient_config.h"
+#include "snapclient_mode.h"
 
-using namespace snap_arduino;
+namespace {
 
-WAVDecoder codec;
-WiFiClient wifiClient;
-I2SStream i2sOut;
-SnapClient snapClient(wifiClient, i2sOut, codec);
+audio_tools::MemoryManager gMemoryManager;
+SnapclientMode gSnapclientMode;
+BluetoothMode gBluetoothMode;
+RuntimeMode *gActiveMode = nullptr;
 
-TaskHandle_t snapTaskHandle = nullptr;
-volatile bool snapClientStarted = false;
-uint32_t lastWifiCheckMs = 0;
-
-bool connectWifiWithTimeout() {
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-  WiFi.setSleep(false);  // reduce bursty latency on continuous audio playback
-  WiFi.setHostname(SNAP_HOST_NAME);
-  WiFi.begin(SNAP_WIFI_SSID, SNAP_WIFI_PASSWORD);
-
-  const uint32_t startMs = millis();
-  while (WiFi.status() != WL_CONNECTED &&
-         (millis() - startMs) < SNAP_WIFI_CONNECT_TIMEOUT_MS) {
-    delay(SNAP_WIFI_RETRY_DELAY_MS);
-    Serial.print('.');
+void configureStatusLed() {
+  if (board_config::STATUS_LED_PIN < 0) {
+    return;
   }
 
-  return WiFi.status() == WL_CONNECTED;
+  pinMode(board_config::STATUS_LED_PIN, OUTPUT);
+  digitalWrite(board_config::STATUS_LED_PIN,
+               board_config::STATUS_LED_ACTIVE_HIGH ? LOW : HIGH);
 }
 
-void configureI2SOutput() {
-  auto cfg = i2sOut.defaultConfig(TX_MODE);
-  cfg.sample_rate = SNAP_AUDIO_SAMPLE_RATE;
-  cfg.bits_per_sample = SNAP_AUDIO_BITS_PER_SAMPLE;
-  cfg.channels = SNAP_AUDIO_CHANNELS;
-  cfg.pin_bck = SNAP_I2S_BCLK_PIN;
-  cfg.pin_ws = SNAP_I2S_LRCLK_PIN;
-  cfg.pin_data = SNAP_I2S_DOUT_PIN;
-  cfg.pin_mck = -1;
-  cfg.buffer_count = SNAP_I2S_DMA_BUFFER_COUNT;
-  cfg.buffer_size = SNAP_I2S_DMA_BUFFER_SIZE;
-  cfg.use_apll = SNAP_I2S_USE_APLL;
-  cfg.auto_clear = true;
-  i2sOut.begin(cfg);
-}
-
-void startSnapClient() {
-  snapClient.setWiFi(true);
-  snapClient.setServerIP(SNAP_SERVER_IP);
-  snapClient.snapProcessor().setServerPort(SNAP_SERVER_PORT);
-  snapClient.snapProcessor().setHostName(SNAP_HOST_NAME);
-  snapClient.snapProcessor().setClientName(SNAP_CLIENT_NAME);
-  snapClient.snapProcessor().setFastLoop(SNAP_USE_FAST_LOOP);
-
-  Serial.print("[snapclient] server=");
-  Serial.print(SNAP_SERVER_IP);
-  Serial.print(":");
-  Serial.println(SNAP_SERVER_PORT);
-  Serial.printf("[audio] expected stream=%u Hz, %u-bit, %u ch, codec=pcm\n",
-                SNAP_AUDIO_SAMPLE_RATE,
-                SNAP_AUDIO_BITS_PER_SAMPLE,
-                SNAP_AUDIO_CHANNELS);
-  Serial.printf("[i2s] dma buffers=%u x %u bytes\n",
-                SNAP_I2S_DMA_BUFFER_COUNT,
-                SNAP_I2S_DMA_BUFFER_SIZE);
-
-  if (!snapClient.begin()) {
-    Serial.println("[snapclient] begin failed, restarting...");
-    delay(1500);
-    ESP.restart();
+void setStatusLed(bool on) {
+  if (board_config::STATUS_LED_PIN < 0) {
+    return;
   }
 
-  snapClientStarted = true;
-  Serial.println("[snapclient] running");
+  const int level = on ? (board_config::STATUS_LED_ACTIVE_HIGH ? HIGH : LOW)
+                       : (board_config::STATUS_LED_ACTIVE_HIGH ? LOW : HIGH);
+  digitalWrite(board_config::STATUS_LED_PIN, level);
 }
 
-void snapClientTask(void *parameter) {
-  (void)parameter;
-
-  for (;;) {
-    if (WiFi.status() == WL_CONNECTED && snapClientStarted) {
-      snapClient.doLoop();
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(SNAP_TASK_DELAY_MS));
+void configurePsramAllocator() {
+  if (!psramFound()) {
+    Serial.println("[psram] not detected");
+    return;
   }
+
+  gMemoryManager.begin(app_config::PSRAM_ALLOC_THRESHOLD_BYTES);
+  Serial.printf("[psram] size=%lu bytes, free=%lu bytes\n",
+                static_cast<unsigned long>(ESP.getPsramSize()),
+                static_cast<unsigned long>(ESP.getFreePsram()));
 }
+
+}  // namespace
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(app_config::SERIAL_BAUD);
   delay(200);
 
-  setCpuFrequencyMhz(SNAP_CPU_FREQ_MHZ);
-  Serial.println("\n[boot] ESP32 Snapclient v3 (PCM-first)");
-  Serial.printf("[cpu] %u MHz\n", getCpuFrequencyMhz());
-  Serial.println("[wifi] connecting...");
+  configureStatusLed();
+  setCpuFrequencyMhz(app_config::CPU_FREQ_MHZ);
 
-  if (!connectWifiWithTimeout()) {
-    Serial.println("\n[wifi] failed to connect, restarting...");
-    delay(1500);
+  Serial.printf("\n[boot] %s\n", app_config::PROJECT_TITLE);
+  Serial.printf("[version] %s\n", app_config::PROJECT_VERSION);
+  Serial.printf("[target] %s\n", app_config::TARGET_MODULE);
+  Serial.printf("[cpu] %u MHz\n", getCpuFrequencyMhz());
+  configurePsramAllocator();
+
+  const auto selectedMode = detectOperatingMode();
+  gActiveMode = selectedMode == app_config::OperatingMode::Snapclient
+                    ? static_cast<RuntimeMode *>(&gSnapclientMode)
+                    : static_cast<RuntimeMode *>(&gBluetoothMode);
+
+  Serial.printf("[boot] selected mode=%s\n", gActiveMode->name());
+  setStatusLed(true);
+
+  if (!gActiveMode->begin()) {
+    Serial.println("[boot] mode start failed, restarting...");
+    delay(app_config::RESTART_DELAY_MS);
     ESP.restart();
   }
-
-  Serial.print("\n[wifi] connected, ip=");
-  Serial.println(WiFi.localIP());
-
-  configureI2SOutput();
-  startSnapClient();
-
-  xTaskCreatePinnedToCore(
-      snapClientTask,
-      "snap-loop",
-      SNAP_TASK_STACK_WORDS,
-      nullptr,
-      SNAP_TASK_PRIORITY,
-      &snapTaskHandle,
-      SNAP_TASK_CORE);
 }
 
 void loop() {
-  const uint32_t nowMs = millis();
-
-  if (nowMs - lastWifiCheckMs >= SNAP_WIFI_MONITOR_INTERVAL_MS) {
-    lastWifiCheckMs = nowMs;
-
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("[wifi] link lost, restarting...");
-      delay(1000);
-      ESP.restart();
-    }
+  if (gActiveMode != nullptr) {
+    gActiveMode->loop();
+  } else {
+    delay(100);
   }
-
-  delay(SNAP_MAIN_LOOP_DELAY_MS);
 }
