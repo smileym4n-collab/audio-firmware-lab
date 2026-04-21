@@ -1,5 +1,7 @@
 #include "audio_output_controller.h"
 
+#include <stdint.h>
+
 #include "board_config.h"
 #include "snapclient_config.h"
 
@@ -30,6 +32,23 @@ uint16_t sanitizedDmaBufferSize(uint16_t requestedSize) {
   }
 
   return requestedSize;
+}
+
+uint16_t maxAbsPcm16(const uint8_t *data, size_t length) {
+  const size_t sampleCount = length / sizeof(int16_t);
+  const int16_t *samples = reinterpret_cast<const int16_t *>(data);
+  uint16_t peak = 0;
+
+  for (size_t i = 0; i < sampleCount; ++i) {
+    const int32_t value = samples[i];
+    const uint16_t magnitude =
+        static_cast<uint16_t>(value < 0 ? -value : value);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+
+  return peak;
 }
 
 }  // namespace
@@ -74,7 +93,31 @@ void AudioOutputController::updateAudioFormat(uint32_t sampleRate,
 }
 
 size_t AudioOutputController::write(const uint8_t *data, size_t length) {
-  return i2sOut_.write(data, length);
+  static uint32_t windowStartMs = millis();
+  static uint32_t windowBytes = 0;
+  static uint16_t windowPeak = 0;
+
+  const size_t written = i2sOut_.write(data, length);
+  windowBytes += static_cast<uint32_t>(written);
+
+  if (written > 0 && config_.bits_per_sample == 16) {
+    const uint16_t chunkPeak = maxAbsPcm16(data, written);
+    if (chunkPeak > windowPeak) {
+      windowPeak = chunkPeak;
+    }
+  }
+
+  const uint32_t nowMs = millis();
+  if (nowMs - windowStartMs >= app_config::AUDIO_DEBUG_LOG_INTERVAL_MS) {
+    Serial.printf("[i2s] pcm bytes=%lu peak16=%u\n",
+                  static_cast<unsigned long>(windowBytes),
+                  windowPeak);
+    windowStartMs = nowMs;
+    windowBytes = 0;
+    windowPeak = 0;
+  }
+
+  return written;
 }
 
 void AudioOutputController::fillConfig(I2SConfig &cfg,

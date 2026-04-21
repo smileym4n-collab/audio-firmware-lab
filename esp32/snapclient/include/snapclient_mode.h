@@ -10,6 +10,7 @@
 #include "api/SnapTimeSync.h"
 
 #include "audio_output_controller.h"
+#include "project_snap_output.h"
 #include "runtime_mode.h"
 
 namespace snap_arduino {
@@ -31,6 +32,7 @@ class SnapclientMode : public RuntimeMode {
   audio_tools::OpusAudioDecoder codec_;
   WiFiClient wifiClient_;
   AudioOutputController audioOutput_;
+  ProjectSnapOutput snapOutput_;
   snap_arduino::SnapTimeSyncFixed timeSync_;
   std::unique_ptr<snap_arduino::SnapProcessorRTOS> snapProcessor_;
   snap_arduino::SnapClient snapClient_;

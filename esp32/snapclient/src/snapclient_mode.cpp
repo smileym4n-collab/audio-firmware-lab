@@ -5,7 +5,11 @@
 #include "snapclient_config.h"
 
 SnapclientMode::SnapclientMode()
-    : snapProcessor_(new snap_arduino::SnapProcessorRTOS(
+    : snapOutput_(audio_tools::AudioInfo(app_config::AUDIO_SAMPLE_RATE,
+                                         app_config::AUDIO_CHANNELS,
+                                         app_config::AUDIO_BITS_PER_SAMPLE)),
+      snapProcessor_(new snap_arduino::SnapProcessorRTOS(
+          snapOutput_,
           app_config::SNAP_OUTPUT_QUEUE_BYTES,
           app_config::SNAP_OUTPUT_ACTIVATION_PERCENT)),
       timeSync_(app_config::SNAP_PROCESSING_LAG_MS,
@@ -53,6 +57,7 @@ bool SnapclientMode::begin() {
                 static_cast<unsigned long>(ESP.getFreePsram()));
   Serial.printf("[snapclient] queue activation=%u%%\n",
                 app_config::SNAP_OUTPUT_ACTIVATION_PERCENT);
+  Serial.printf("[snapclient] queue entry slots=%d\n", RTOS_MAX_QUEUE_ENTRY_COUNT);
   Serial.println("[snapclient] decoder=OpusAudioDecoder");
   Serial.printf("[snapclient] sync=fixed factor=%.3f\n",
                 static_cast<double>(app_config::SNAP_FIXED_PLAYBACK_FACTOR));

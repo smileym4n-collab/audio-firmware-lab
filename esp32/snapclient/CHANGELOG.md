@@ -22,3 +22,8 @@
 - Fixed the boot loop from the oversize I2S DMA buffer setting and clamped the DMA size to the ESP32 driver's valid range.
 - Lowered the Snapclient queue activation threshold so the larger Opus queue starts playback earlier instead of waiting for a near-full buffer.
 - Enabled info-level runtime logging to expose the Snapclient queue and synchronization behavior during silent Opus playback debugging.
+- Increased the Snapclient RTOS queue entry slot count after logs showed `size_queue full` while plenty of byte-buffer space was still available.
+- Added I2S-side PCM activity logging so silent playback can be distinguished from missing decode output during Snapclient debugging.
+- Moved the PCM probe into the Snapclient decoded-audio path after confirming the previous I2S-side wrapper was bypassed by the library.
+- Added a project-local Snapclient output wrapper so Opus decoder startup failures are logged clearly instead of silently returning zero-byte writes.
+- Added a safe fallback to the configured 48 kHz, 16-bit, stereo format when Snapclient Opus audio info arrives invalid.

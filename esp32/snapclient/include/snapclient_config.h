@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.6 configuration.
-  Version: 0.9.6
+  ESP32 audio client v9.10 configuration.
+  Version: 0.9.10
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.6";
-static constexpr char PROJECT_VERSION[] = "0.9.6";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.10";
+static constexpr char PROJECT_VERSION[] = "0.9.10";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -89,5 +89,6 @@ static constexpr uint32_t SERIAL_BAUD = 115200;
 static constexpr uint32_t MAIN_LOOP_DELAY_MS = 1;
 static constexpr bool SNAP_USE_FAST_LOOP = true;
 static constexpr uint32_t RESTART_DELAY_MS = 1500;
+static constexpr uint32_t AUDIO_DEBUG_LOG_INTERVAL_MS = 1000;
 
 }  // namespace app_config

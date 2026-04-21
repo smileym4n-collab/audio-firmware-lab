@@ -1,6 +1,6 @@
-# ESP32 Audio Client v9.6
+# ESP32 Audio Client v9.10
 
-Version: **0.9.6**
+Version: **0.9.10**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and switches the Snapclient path to **Opus** while leaving the runtime mode switch and Bluetooth receiver behavior unchanged.
 
@@ -234,3 +234,14 @@ pio run -e esp32-wrover-ie-n16r8
 
 - Enabled info-level ESP32 logging so the built-in Snapclient queue and synchronization messages are visible during Opus bring-up.
 - Kept the `v0.9.5` audio behavior unchanged so the next playback log is easier to interpret.
+
+## Change summary from v0.9.6 -> v0.9.7
+
+- Increased the Snapclient RTOS queue entry count from the upstream default so Opus packet writes do not hit `size_queue full` long before the PSRAM byte buffer is actually full.
+- Added startup logging for the configured Snapclient queue entry slot count.
+
+## Change summary from v0.9.9 -> v0.9.10
+
+- Replaced the temporary Snapclient `Print` probe path with a project-local Snapclient output wrapper that keeps the direct `AudioStream` path.
+- Added explicit Snapclient logs for the actual Opus audio format and clear decoder startup failures instead of silently returning zero-byte writes.
+- Added a safe fallback to the configured `48 kHz / 16-bit / stereo` audio format when the upstream Opus header or output info arrives invalid.
