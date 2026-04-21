@@ -1,8 +1,8 @@
-# ESP32 Audio Client v8
+# ESP32 Audio Client v9.6
 
-Version: **0.8.0**
+Version: **0.9.6**
 
-This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and fixes the Snapclient PCM playback path for Snapserver WAV-wrapped PCM streams.
+This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and switches the Snapclient path to **Opus** while leaving the runtime mode switch and Bluetooth receiver behavior unchanged.
 
 Default behavior after this change:
 
@@ -28,7 +28,7 @@ Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapc
 | --- | --- | --- |
 | I2S BCLK | `GPIO26` | External DAC bit clock |
 | I2S LRCLK / WS | `GPIO25` | External DAC word select |
-| I2S DOUT | `GPIO22` | External DAC serial data input |
+| I2S DOUT | `GPIO13` | External DAC serial data input |
 | I2S MCLK | `GPIO0` | Optional only, used only when `I2S_MCLK_ENABLED = true` |
 | Mode button | `GPIO32` | Runtime momentary mode-toggle button, active low with internal pull-up |
 | Mode LED | `GPIO33` | Single mode-status LED, active high by default |
@@ -147,9 +147,12 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 - this is the normal cold-boot default path
 - connects to Wi-Fi as a station
 - starts the existing Snapclient transport path
-- expects a **PCM** Snapserver stream
+- expects an **Opus** Snapserver stream
 - uses larger buffering suited to the WROVER target
 - enables PSRAM-backed allocation for larger buffers
+- uses `OpusAudioDecoder` in the shared AudioTools/Snapclient path
+- currently keeps a fixed `1.0` Snapclient playback factor for simpler Opus bring-up on this hardware
+- uses a larger RTOS output queue and larger I2S DMA buffers to better absorb Wi-Fi jitter
 - restarts on Wi-Fi loss instead of trying to continue in a bad state
 
 ### Bluetooth mode
@@ -162,11 +165,11 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 
 ## Snapserver recommendations
 
-Snapclient mode is intended for a **PCM** stream rather than Opus on this ESP32 target.
+Snapclient mode is now intended for an **Opus** stream on this ESP32-WROVER build.
 
 Recommended stream settings:
 
-- codec: `pcm`
+- codec: `opus`
 - sample format: `48000:16:2`
 
 See [snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) for a concrete example.
@@ -177,17 +180,17 @@ Practical recommendations:
 - keep the ESP32 on strong 2.4 GHz Wi-Fi
 - avoid testing initial bring-up on a congested access point
 
-## Snapclient PCM note
+## Snapclient codec note
 
-This project now uses a small local PCM decoder for Snapclient mode instead of relying on the generic WAV decoder directly.
+This build uses the same Opus decoder path shown by the upstream Arduino Snapclient I2S example instead of the earlier PCM wrapper workaround.
 
 Why:
 
-- the bundled Snapcast Arduino library only forwards the first `44` bytes of the PCM WAV wrapper into the decoder
-- some Snapserver PCM headers are longer than `44` bytes before the `data` chunk appears
-- that can produce a `WAV header misses 'data' section` warning and no audio output
+- Bluetooth playback is already clean on the same shared I2S/DAC path
+- the remaining distortion was isolated to the Snapclient-only PCM path
+- the bundled Snapclient library is better aligned with `codec=opus` on ESP32
 
-The local decoder in [snapcast_pcm_decoder.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapcast_pcm_decoder.cpp) reads the standard WAV format fields from the Snapcast PCM wrapper, updates the audio format, discards the wrapper, and then passes the actual PCM payload to I2S.
+For playback stability during bring-up, the current build uses a fixed Snapclient time-sync factor instead of dynamic resampling drift correction. That setting lives in [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h).
 
 ## Build / flash
 
@@ -212,10 +215,22 @@ pio run -e esp32-wrover-ie-n16r8
 - only one audio mode is active per boot
 - Bluetooth mode does not talk to Snapserver at all
 - Snapclient mode still depends on good Wi-Fi even with larger buffering
+- Opus moves some decode work back onto the ESP32, so Wi-Fi quality and CPU headroom still matter
 - when MCLK is enabled, classic ESP32 routing is limited and `GPIO0` needs careful reset-time wiring
 
-## Change summary from v0.7.1 -> v0.8.0
+## Change summary from v0.9.1 -> v0.9.2
 
-- Added serial mode-switch commands so Bluetooth and Snapclient can be selected without the physical mode button.
-- Kept the serial commands on the same stored-next-mode reboot path as the button logic.
-- Left the shared I2S output path unchanged while making Bluetooth testing easier during bring-up.
+- Reverted the experimental dynamic Opus sync change after it caused silence on hardware.
+- Restored the fixed Snapclient playback factor used by the earlier working Opus build.
+- Kept the Bluetooth mode, runtime mode switching, and shared I2S output path unchanged.
+
+## Change summary from v0.9.4 -> v0.9.5
+
+- Reduced the Snapclient queue activation threshold from `75%` to `40%` so playback starts earlier with the larger queue.
+- Added explicit serial logging for the Snapclient queue activation percentage.
+- Kept the larger queue and safe `24 x 1024` I2S DMA configuration from `v0.9.4`.
+
+## Change summary from v0.9.5 -> v0.9.6
+
+- Enabled info-level ESP32 logging so the built-in Snapclient queue and synchronization messages are visible during Opus bring-up.
+- Kept the `v0.9.5` audio behavior unchanged so the next playback log is easier to interpret.

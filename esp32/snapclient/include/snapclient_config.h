@@ -1,9 +1,9 @@
 #pragma once
 
 /*
-  ESP32 audio client v8 configuration.
-  Version: 0.8.0
-  Edit values below for your local network, stream, and Bluetooth naming.
+  ESP32 audio client v9.6 configuration.
+  Version: 0.9.6
+  Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
 #include <Arduino.h>
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v8";
-static constexpr char PROJECT_VERSION[] = "0.8.0";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.6";
+static constexpr char PROJECT_VERSION[] = "0.9.6";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -59,20 +59,29 @@ static constexpr uint32_t MODE_SWITCH_MAGIC = 0x534D4F44;  // "SMOD"
 static constexpr uint32_t MODE_LED_BLUETOOTH_BLINK_INTERVAL_MS = 250;
 
 // ---------- Audio format ----------
-// Keep this aligned with the Snapserver PCM stream profile.
+// Keep this aligned with the decoded Snapserver playback format.
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 48000;
 static constexpr uint8_t AUDIO_BITS_PER_SAMPLE = 16;
 static constexpr uint8_t AUDIO_CHANNELS = 2;
 
 // ---------- I2S / DMA tuning ----------
-static constexpr uint8_t I2S_DMA_BUFFER_COUNT = 16;
+// These are intentionally generous for the WROVER hardware and external DAC use.
+// The goal here is stable playback rather than minimum latency.
+static constexpr uint8_t I2S_DMA_BUFFER_COUNT = 24;
+// Classic ESP32 I2S driver requires the DMA buffer size to stay within 8..1024.
 static constexpr uint16_t I2S_DMA_BUFFER_SIZE = 1024;
 static constexpr bool I2S_USE_AUDIO_PLL = true;
 
 // ---------- Buffering / stability ----------
-static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
-static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 60;
+// Keep the Opus queue large enough to absorb Wi-Fi jitter on the WROVER target.
+static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 131072;
+// Start the RTOS output task earlier so playback can begin without waiting for
+// an excessively full queue.
+static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 40;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
+static constexpr int SNAP_PROCESSING_LAG_MS = -172;
+static constexpr int SNAP_SYNC_UPDATE_INTERVAL = 10;
+static constexpr float SNAP_FIXED_PLAYBACK_FACTOR = 1.0f;
 
 // ---------- Runtime ----------
 static constexpr uint32_t CPU_FREQ_MHZ = 240;

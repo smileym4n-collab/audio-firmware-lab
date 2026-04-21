@@ -13,3 +13,12 @@
 - Made I2S MCLK optional through a central board configuration flag, with MCLK disabled by default for PCM5102-style builds.
 - Fixed Snapclient PCM playback by replacing the generic WAV decoder with a local decoder that handles the truncated Snapcast PCM wrapper correctly.
 - Added serial commands to switch between Snapclient and Bluetooth modes without the physical mode button during bring-up.
+- Fixed the reboot handoff for requested mode changes so the next mode survives reset reliably.
+- Changed Snapclient mode to use a fixed playback sync factor for more stable PCM bring-up on the ESP32 target.
+- Switched Snapclient mode over to the upstream Opus decoder path and updated the Snapserver documentation to use `codec=opus`.
+- Switched the Opus Snapclient path back to dynamic clock synchronization and restored a positive `172 ms` processing lag for better playback timing.
+- Reverted the experimental dynamic Opus timing change after it caused silence, returning Snapclient mode to the earlier fixed-sync Opus behavior.
+- Increased the Snapclient Opus queue and I2S DMA buffering to improve playback stability on the WROVER hardware.
+- Fixed the boot loop from the oversize I2S DMA buffer setting and clamped the DMA size to the ESP32 driver's valid range.
+- Lowered the Snapclient queue activation threshold so the larger Opus queue starts playback earlier instead of waiting for a near-full buffer.
+- Enabled info-level runtime logging to expose the Snapclient queue and synchronization behavior during silent Opus playback debugging.

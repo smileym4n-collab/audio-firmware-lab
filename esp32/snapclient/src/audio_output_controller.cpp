@@ -11,6 +11,27 @@ int configuredMclkPin() {
   return board_config::I2S_MCLK_ENABLED ? board_config::I2S_MCLK_PIN : -1;
 }
 
+uint16_t sanitizedDmaBufferSize(uint16_t requestedSize) {
+  constexpr uint16_t kMinI2sDmaBufferSize = 8;
+  constexpr uint16_t kMaxI2sDmaBufferSize = 1024;
+
+  if (requestedSize < kMinI2sDmaBufferSize) {
+    Serial.printf("[i2s] requested dma buffer size %u is too small, clamping to %u\n",
+                  requestedSize,
+                  kMinI2sDmaBufferSize);
+    return kMinI2sDmaBufferSize;
+  }
+
+  if (requestedSize > kMaxI2sDmaBufferSize) {
+    Serial.printf("[i2s] requested dma buffer size %u exceeds ESP32 limit, clamping to %u\n",
+                  requestedSize,
+                  kMaxI2sDmaBufferSize);
+    return kMaxI2sDmaBufferSize;
+  }
+
+  return requestedSize;
+}
+
 }  // namespace
 
 bool AudioOutputController::begin(uint32_t sampleRate) {
@@ -69,7 +90,7 @@ void AudioOutputController::fillConfig(I2SConfig &cfg,
   cfg.pin_data = board_config::I2S_DOUT_PIN;
   cfg.pin_mck = configuredMclkPin();
   cfg.buffer_count = app_config::I2S_DMA_BUFFER_COUNT;
-  cfg.buffer_size = app_config::I2S_DMA_BUFFER_SIZE;
+  cfg.buffer_size = sanitizedDmaBufferSize(app_config::I2S_DMA_BUFFER_SIZE);
   cfg.use_apll = app_config::I2S_USE_AUDIO_PLL;
   cfg.auto_clear = true;
 }

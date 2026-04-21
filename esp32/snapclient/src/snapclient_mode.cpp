@@ -8,6 +8,9 @@ SnapclientMode::SnapclientMode()
     : snapProcessor_(new snap_arduino::SnapProcessorRTOS(
           app_config::SNAP_OUTPUT_QUEUE_BYTES,
           app_config::SNAP_OUTPUT_ACTIVATION_PERCENT)),
+      timeSync_(app_config::SNAP_PROCESSING_LAG_MS,
+                app_config::SNAP_FIXED_PLAYBACK_FACTOR,
+                app_config::SNAP_SYNC_UPDATE_INTERVAL),
       snapClient_(wifiClient_, audioOutput_.stream(), codec_) {}
 
 SnapclientMode::~SnapclientMode() = default;
@@ -41,15 +44,20 @@ bool SnapclientMode::begin() {
   Serial.print(app_config::snapServerIp());
   Serial.print(":");
   Serial.println(app_config::SNAP_SERVER_PORT);
-  Serial.printf("[audio] expected stream=%lu Hz, %u-bit, %u ch, codec=pcm (Snapcast WAV wrapper)\n",
+  Serial.printf("[audio] expected stream=%lu Hz, %u-bit, %u ch, codec=opus\n",
                 static_cast<unsigned long>(app_config::AUDIO_SAMPLE_RATE),
                 app_config::AUDIO_BITS_PER_SAMPLE,
                 app_config::AUDIO_CHANNELS);
   Serial.printf("[snapclient] queue=%lu bytes, free_psram=%lu\n",
                 static_cast<unsigned long>(app_config::SNAP_OUTPUT_QUEUE_BYTES),
                 static_cast<unsigned long>(ESP.getFreePsram()));
+  Serial.printf("[snapclient] queue activation=%u%%\n",
+                app_config::SNAP_OUTPUT_ACTIVATION_PERCENT);
+  Serial.println("[snapclient] decoder=OpusAudioDecoder");
+  Serial.printf("[snapclient] sync=fixed factor=%.3f\n",
+                static_cast<double>(app_config::SNAP_FIXED_PLAYBACK_FACTOR));
 
-  if (!snapClient_.begin()) {
+  if (!snapClient_.begin(timeSync_)) {
     Serial.println("[snapclient] begin failed");
     return false;
   }

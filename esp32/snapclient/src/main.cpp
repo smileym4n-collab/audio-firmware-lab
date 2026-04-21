@@ -1,12 +1,12 @@
 /*
-  Project: ESP32 audio client v8 (runtime mode toggle with optional MCLK)
-  Version: 0.8.0
+  Project: ESP32 audio client v9.6 (runtime mode toggle with optional MCLK)
+  Version: 0.9.6
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
     GPIO26 -> I2S BCLK
     GPIO25 -> I2S LRCLK / WS
-    GPIO22 -> I2S DOUT
+    GPIO13 -> I2S DOUT
     GPIO0  -> Optional I2S MCLK when enabled in board_config.h
     GPIO32 -> Runtime mode-toggle button (active low with internal pull-up)
     GPIO33 -> Mode-status LED
