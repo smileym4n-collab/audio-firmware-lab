@@ -28,3 +28,5 @@
 - Added a project-local Snapclient output wrapper so Opus decoder startup failures are logged clearly instead of silently returning zero-byte writes.
 - Added a safe fallback to the configured 48 kHz, 16-bit, stereo format when Snapclient Opus audio info arrives invalid.
 - Reduced the Snapclient Opus queue size and activation threshold after logs showed the RTOS output task was waiting too long to start playback.
+- Added a direct PCM activity probe on the real Snapclient-to-I2S stream so decoded audio can be distinguished from silence without changing the Bluetooth path.
+- Added a Snapclient-only output gain trim after logs showed the decoded Opus path repeatedly reaching full-scale PCM peaks.

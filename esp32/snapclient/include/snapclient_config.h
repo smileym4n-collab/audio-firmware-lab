@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.11 configuration.
-  Version: 0.9.11
+  ESP32 audio client v9.13 configuration.
+  Version: 0.9.13
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.11";
-static constexpr char PROJECT_VERSION[] = "0.9.11";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.13";
+static constexpr char PROJECT_VERSION[] = "0.9.13";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -78,6 +78,9 @@ static constexpr bool I2S_USE_AUDIO_PLL = true;
 static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
 // Start the RTOS output task early once the queue has a modest amount of data.
 static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 20;
+// Add a little headroom on the Snapclient path so full-scale Opus peaks do not
+// slam into the DAC path during bring-up. Bluetooth mode is unaffected.
+static constexpr float SNAPCLIENT_OUTPUT_GAIN = 0.5f;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
 static constexpr int SNAP_PROCESSING_LAG_MS = -172;
 static constexpr int SNAP_SYNC_UPDATE_INTERVAL = 10;

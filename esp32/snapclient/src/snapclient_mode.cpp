@@ -5,7 +5,8 @@
 #include "snapclient_config.h"
 
 SnapclientMode::SnapclientMode()
-    : snapOutput_(audio_tools::AudioInfo(app_config::AUDIO_SAMPLE_RATE,
+    : pcmProbe_(audioOutput_.stream()),
+      snapOutput_(audio_tools::AudioInfo(app_config::AUDIO_SAMPLE_RATE,
                                          app_config::AUDIO_CHANNELS,
                                          app_config::AUDIO_BITS_PER_SAMPLE)),
       snapProcessor_(new snap_arduino::SnapProcessorRTOS(
@@ -15,7 +16,7 @@ SnapclientMode::SnapclientMode()
       timeSync_(app_config::SNAP_PROCESSING_LAG_MS,
                 app_config::SNAP_FIXED_PLAYBACK_FACTOR,
                 app_config::SNAP_SYNC_UPDATE_INTERVAL),
-      snapClient_(wifiClient_, audioOutput_.stream(), codec_) {}
+      snapClient_(wifiClient_, pcmProbe_, codec_) {}
 
 SnapclientMode::~SnapclientMode() = default;
 
@@ -43,6 +44,7 @@ bool SnapclientMode::begin() {
   snapClient_.snapProcessor().setHostName(app_config::SNAP_HOST_NAME);
   snapClient_.snapProcessor().setClientName(app_config::SNAP_CLIENT_NAME);
   snapClient_.snapProcessor().setFastLoop(app_config::SNAP_USE_FAST_LOOP);
+  snapClient_.setVolumeFactor(app_config::SNAPCLIENT_OUTPUT_GAIN);
 
   Serial.print("[snapclient] server=");
   Serial.print(app_config::snapServerIp());
@@ -58,6 +60,8 @@ bool SnapclientMode::begin() {
   Serial.printf("[snapclient] queue activation=%u%%\n",
                 app_config::SNAP_OUTPUT_ACTIVATION_PERCENT);
   Serial.printf("[snapclient] queue entry slots=%d\n", RTOS_MAX_QUEUE_ENTRY_COUNT);
+  Serial.printf("[snapclient] output gain=%.2f\n",
+                static_cast<double>(app_config::SNAPCLIENT_OUTPUT_GAIN));
   Serial.println("[snapclient] decoder=OpusAudioDecoder");
   Serial.printf("[snapclient] sync=fixed factor=%.3f\n",
                 static_cast<double>(app_config::SNAP_FIXED_PLAYBACK_FACTOR));

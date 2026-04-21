@@ -1,6 +1,6 @@
-# ESP32 Audio Client v9.11
+# ESP32 Audio Client v9.13
 
-Version: **0.9.11**
+Version: **0.9.13**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and switches the Snapclient path to **Opus** while leaving the runtime mode switch and Bluetooth receiver behavior unchanged.
 
@@ -153,6 +153,7 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 - uses `OpusAudioDecoder` in the shared AudioTools/Snapclient path
 - currently keeps a fixed `1.0` Snapclient playback factor for simpler Opus bring-up on this hardware
 - uses a larger RTOS output queue and larger I2S DMA buffers to better absorb Wi-Fi jitter
+- applies a Snapclient-only output gain trim so full-scale Opus peaks have some headroom during bring-up
 - restarts on Wi-Fi loss instead of trying to continue in a bad state
 
 ### Bluetooth mode
@@ -240,8 +241,8 @@ pio run -e esp32-wrover-ie-n16r8
 - Increased the Snapclient RTOS queue entry count from the upstream default so Opus packet writes do not hit `size_queue full` long before the PSRAM byte buffer is actually full.
 - Added startup logging for the configured Snapclient queue entry slot count.
 
-## Change summary from v0.9.10 -> v0.9.11
+## Change summary from v0.9.12 -> v0.9.13
 
-- Reduced the Snapclient Opus queue from `131072` bytes to `32768` bytes so playback does not wait behind an oversized PSRAM backlog.
-- Lowered the RTOS output activation point from `40%` to `20%` so the output task starts much earlier after timing becomes valid.
-- Kept the `v0.9.10` direct `AudioStream` Opus path and decoder logging unchanged.
+- Kept the direct PCM probe on the real Snapclient-to-I2S path.
+- Added a Snapclient-only output gain trim of `0.5` after logs showed decoded PCM repeatedly hitting full scale.
+- Left Bluetooth and the shared mode-switch behavior unchanged.
