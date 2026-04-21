@@ -9,6 +9,9 @@ class ModeSwitchController {
 
  private:
   bool isButtonActive() const;
+  void processSerialInput();
+  void printSerialHelp() const;
+  void requestModeChange(app_config::OperatingMode nextMode, const char *source);
   void requestModeToggle();
 
   app_config::OperatingMode currentMode_ = app_config::OperatingMode::Snapclient;

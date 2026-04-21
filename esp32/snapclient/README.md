@@ -1,6 +1,6 @@
-# ESP32 Audio Client v7.1
+# ESP32 Audio Client v8
 
-Version: **0.7.1**
+Version: **0.8.0**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and fixes the Snapclient PCM playback path for Snapserver WAV-wrapped PCM streams.
 
@@ -102,6 +102,13 @@ Recommended wiring for the mode button:
 - connect one side of the push button to `GPIO32`
 - connect the other side to `GND`
 - the firmware enables the internal pull-up, so no external pull-up is required for the default arrangement
+
+If you do not have the button connected yet, you can also switch modes from the serial monitor:
+
+- send `b` to reboot into **Bluetooth** mode
+- send `s` to reboot into **Snapclient** mode
+- send `t` to toggle to the opposite mode
+- send `?` to print the help line again
 
 ## Mode LED behavior
 
@@ -207,9 +214,8 @@ pio run -e esp32-wrover-ie-n16r8
 - Snapclient mode still depends on good Wi-Fi even with larger buffering
 - when MCLK is enabled, classic ESP32 routing is limited and `GPIO0` needs careful reset-time wiring
 
-## Change summary from v0.7.0 -> v0.7.1
+## Change summary from v0.7.1 -> v0.8.0
 
-- Added a project-local Snapclient PCM decoder so WAV-wrapped PCM streams from Snapserver start reliably.
-- Avoided the `WAV header misses 'data' section` startup failure path when Snapserver sends a longer PCM header.
-- Kept Bluetooth mode and the shared I2S output path unchanged.
-- Updated the documentation and visible version numbers for the playback fix.
+- Added serial mode-switch commands so Bluetooth and Snapclient can be selected without the physical mode button.
+- Kept the serial commands on the same stored-next-mode reboot path as the button logic.
+- Left the shared I2S output path unchanged while making Bluetooth testing easier during bring-up.

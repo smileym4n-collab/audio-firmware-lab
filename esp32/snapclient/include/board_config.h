@@ -7,7 +7,7 @@ namespace board_config {
 // ---------- User-editable hardware pin assignments ----------
 static constexpr int I2S_BCLK_PIN = 26;   // I2S bit clock to external DAC BCLK/SCK
 static constexpr int I2S_LRCLK_PIN = 25;  // I2S word select / LRCLK to DAC WS
-static constexpr int I2S_DOUT_PIN = 22;   // I2S serial data output to DAC DIN
+static constexpr int I2S_DOUT_PIN = 13;   // I2S serial data output to DAC DIN
 
 // Optional I2S MCLK output.
 // Set I2S_MCLK_ENABLED to false for PCM5102-style DAC modules that do not need MCLK.

@@ -1,6 +1,6 @@
 /*
-  Project: ESP32 audio client v7.1 (runtime mode toggle with optional MCLK)
-  Version: 0.7.1
+  Project: ESP32 audio client v8 (runtime mode toggle with optional MCLK)
+  Version: 0.8.0
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -79,6 +79,7 @@ void setup() {
                 board_config::MODE_STATUS_LED_PIN);
   Serial.printf("[button] pin=%d, press while running to toggle mode and reboot\n",
                 board_config::BOOT_MODE_BUTTON_PIN);
+  Serial.println("[serial] commands: 'b' -> Bluetooth, 's' -> Snapclient, 't' -> toggle");
   gModeLed.setMode(selectedMode);
   gModeSwitch.begin(selectedMode);
 

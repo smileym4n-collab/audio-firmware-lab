@@ -19,9 +19,12 @@ void ModeSwitchController::begin(app_config::OperatingMode currentMode) {
   currentMode_ = currentMode;
   pinMode(board_config::BOOT_MODE_BUTTON_PIN,
           board_config::BOOT_MODE_BUTTON_USE_PULLUP ? INPUT_PULLUP : INPUT_PULLDOWN);
+  printSerialHelp();
 }
 
 void ModeSwitchController::update() {
+  processSerialInput();
+
   const bool buttonActive = isButtonActive();
 
   if (!buttonWasReleasedAfterBoot_) {
@@ -62,12 +65,72 @@ bool ModeSwitchController::isButtonActive() const {
 
 void ModeSwitchController::requestModeToggle() {
   const auto nextMode = oppositeMode(currentMode_);
+  requestModeChange(nextMode, "button");
+}
+
+void ModeSwitchController::processSerialInput() {
+  while (Serial.available() > 0) {
+    const int value = Serial.read();
+    if (value < 0) {
+      return;
+    }
+
+    switch (static_cast<char>(value)) {
+      case 'b':
+      case 'B':
+        requestModeChange(app_config::OperatingMode::Bluetooth, "serial");
+        return;
+      case 's':
+      case 'S':
+        requestModeChange(app_config::OperatingMode::Snapclient, "serial");
+        return;
+      case 't':
+      case 'T':
+        requestModeToggle();
+        return;
+      case 'h':
+      case 'H':
+      case '?':
+        printSerialHelp();
+        break;
+      case '\r':
+      case '\n':
+      case ' ':
+      case '\t':
+        break;
+      default:
+        Serial.printf("[serial] unrecognized mode command '%c'\n",
+                      static_cast<char>(value));
+        printSerialHelp();
+        break;
+    }
+  }
+}
+
+void ModeSwitchController::printSerialHelp() const {
+  Serial.println("[serial] mode commands: 'b' -> Bluetooth, 's' -> Snapclient, 't' -> toggle, '?' -> help");
+}
+
+void ModeSwitchController::requestModeChange(app_config::OperatingMode nextMode,
+                                             const char *source) {
+  if (nextMode == currentMode_) {
+    Serial.printf("[%s] already in %s mode\n",
+                  source,
+                  app_config::operatingModeName(nextMode));
+    return;
+  }
 
   requestOperatingModeOnNextRestart(nextMode);
 
-  Serial.printf("[button] pressed on GPIO%d -> rebooting into %s mode\n",
-                board_config::BOOT_MODE_BUTTON_PIN,
-                app_config::operatingModeName(nextMode));
+  if (source != nullptr && strcmp(source, "button") == 0) {
+    Serial.printf("[button] pressed on GPIO%d -> rebooting into %s mode\n",
+                  board_config::BOOT_MODE_BUTTON_PIN,
+                  app_config::operatingModeName(nextMode));
+  } else {
+    Serial.printf("[%s] rebooting into %s mode\n",
+                  source != nullptr ? source : "mode",
+                  app_config::operatingModeName(nextMode));
+  }
   delay(app_config::MODE_SWITCH_RESTART_DELAY_MS);
   ESP.restart();
 }

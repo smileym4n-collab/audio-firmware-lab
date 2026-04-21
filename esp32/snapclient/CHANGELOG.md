@@ -12,3 +12,4 @@
 - Changed the mode button again so cold boot always starts in Snapclient and runtime button presses reboot into the opposite mode.
 - Made I2S MCLK optional through a central board configuration flag, with MCLK disabled by default for PCM5102-style builds.
 - Fixed Snapclient PCM playback by replacing the generic WAV decoder with a local decoder that handles the truncated Snapcast PCM wrapper correctly.
+- Added serial commands to switch between Snapclient and Bluetooth modes without the physical mode button during bring-up.
