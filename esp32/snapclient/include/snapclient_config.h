@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.10 configuration.
-  Version: 0.9.10
+  ESP32 audio client v9.11 configuration.
+  Version: 0.9.11
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.10";
-static constexpr char PROJECT_VERSION[] = "0.9.10";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.11";
+static constexpr char PROJECT_VERSION[] = "0.9.11";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -73,11 +73,11 @@ static constexpr uint16_t I2S_DMA_BUFFER_SIZE = 1024;
 static constexpr bool I2S_USE_AUDIO_PLL = true;
 
 // ---------- Buffering / stability ----------
-// Keep the Opus queue large enough to absorb Wi-Fi jitter on the WROVER target.
-static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 131072;
-// Start the RTOS output task earlier so playback can begin without waiting for
-// an excessively full queue.
-static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 40;
+// Keep enough Opus buffering for Wi-Fi jitter without waiting so long that
+// playback starts on stale data.
+static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
+// Start the RTOS output task early once the queue has a modest amount of data.
+static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 20;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
 static constexpr int SNAP_PROCESSING_LAG_MS = -172;
 static constexpr int SNAP_SYNC_UPDATE_INTERVAL = 10;
