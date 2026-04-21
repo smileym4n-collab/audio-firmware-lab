@@ -1,8 +1,8 @@
-# ESP32 Audio Client v7
+# ESP32 Audio Client v7.1
 
-Version: **0.7.0**
+Version: **0.7.1**
 
-This revision keeps the **ESP32-WROVER-IE-N16R8** target and adds a simple, central way to make **I2S MCLK optional**.
+This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and fixes the Snapclient PCM playback path for Snapserver WAV-wrapped PCM streams.
 
 Default behavior after this change:
 
@@ -170,6 +170,18 @@ Practical recommendations:
 - keep the ESP32 on strong 2.4 GHz Wi-Fi
 - avoid testing initial bring-up on a congested access point
 
+## Snapclient PCM note
+
+This project now uses a small local PCM decoder for Snapclient mode instead of relying on the generic WAV decoder directly.
+
+Why:
+
+- the bundled Snapcast Arduino library only forwards the first `44` bytes of the PCM WAV wrapper into the decoder
+- some Snapserver PCM headers are longer than `44` bytes before the `data` chunk appears
+- that can produce a `WAV header misses 'data' section` warning and no audio output
+
+The local decoder in [snapcast_pcm_decoder.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapcast_pcm_decoder.cpp) reads the standard WAV format fields from the Snapcast PCM wrapper, updates the audio format, discards the wrapper, and then passes the actual PCM payload to I2S.
+
 ## Build / flash
 
 The project defaults to the WROVER target in `platformio.ini`.
@@ -195,9 +207,9 @@ pio run -e esp32-wrover-ie-n16r8
 - Snapclient mode still depends on good Wi-Fi even with larger buffering
 - when MCLK is enabled, classic ESP32 routing is limited and `GPIO0` needs careful reset-time wiring
 
-## Change summary from v0.6.0 -> v0.7.0
+## Change summary from v0.7.0 -> v0.7.1
 
-- Added a central `I2S_MCLK_ENABLED` switch so MCLK can be enabled or disabled cleanly.
-- Made the default build leave MCLK disabled, which avoids using `GPIO0`.
-- Kept the MCLK decision inside the shared I2S output setup path used by both Snapclient and Bluetooth modes.
-- Updated the documentation and visible version numbers for the optional-MCLK configuration.
+- Added a project-local Snapclient PCM decoder so WAV-wrapped PCM streams from Snapserver start reliably.
+- Avoided the `WAV header misses 'data' section` startup failure path when Snapserver sends a longer PCM header.
+- Kept Bluetooth mode and the shared I2S output path unchanged.
+- Updated the documentation and visible version numbers for the playback fix.

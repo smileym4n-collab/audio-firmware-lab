@@ -5,11 +5,11 @@
 #include <WiFi.h>
 
 #include "AudioTools.h"
-#include "AudioTools/AudioCodecs/CodecWAV.h"
 #include "SnapClient.h"
 
 #include "audio_output_controller.h"
 #include "runtime_mode.h"
+#include "snapcast_pcm_decoder.h"
 
 namespace snap_arduino {
 class SnapProcessorRTOS;
@@ -27,7 +27,7 @@ class SnapclientMode : public RuntimeMode {
  private:
   bool connectWifiWithTimeout();
 
-  WAVDecoder codec_;
+  SnapcastPcmDecoder codec_;
   WiFiClient wifiClient_;
   AudioOutputController audioOutput_;
   std::unique_ptr<snap_arduino::SnapProcessorRTOS> snapProcessor_;

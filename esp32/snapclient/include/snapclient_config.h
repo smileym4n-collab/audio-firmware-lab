@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v7 configuration.
-  Version: 0.7.0
+  ESP32 audio client v7.1 configuration.
+  Version: 0.7.1
   Edit values below for your local network, stream, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v7";
-static constexpr char PROJECT_VERSION[] = "0.7.0";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v7.1";
+static constexpr char PROJECT_VERSION[] = "0.7.1";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------

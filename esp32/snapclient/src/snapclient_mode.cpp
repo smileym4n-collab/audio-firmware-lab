@@ -41,7 +41,7 @@ bool SnapclientMode::begin() {
   Serial.print(app_config::snapServerIp());
   Serial.print(":");
   Serial.println(app_config::SNAP_SERVER_PORT);
-  Serial.printf("[audio] expected stream=%lu Hz, %u-bit, %u ch, codec=pcm\n",
+  Serial.printf("[audio] expected stream=%lu Hz, %u-bit, %u ch, codec=pcm (Snapcast WAV wrapper)\n",
                 static_cast<unsigned long>(app_config::AUDIO_SAMPLE_RATE),
                 app_config::AUDIO_BITS_PER_SAMPLE,
                 app_config::AUDIO_CHANNELS);
