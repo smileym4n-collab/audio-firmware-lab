@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- Added a Snapclient-only gain trim before the shared resampler/output path to reduce distortion from full-scale PCM material.
+- Added a startup log for the active Snapclient output gain factor.
+- Fixed the Snapclient PCM header handoff so the parsed WAV header format is pushed into the active downstream stream even when the library exposes the target as `Print`.
+- Added clearer Snapclient logging for the PCM header format target that gets applied at runtime.
+- Fixed the Snapclient PCM decoder so the parsed WAV header explicitly updates the active downstream audio stream and I2S format.
+- Added a dedicated log line when the parsed PCM header is applied to the output path.
+- Clarified the Snapclient PCM logs so the configured fallback format is distinct from the actual WAV header parsed from Snapserver.
+- Added an explicit I2S format-update log after Snapclient applies the parsed PCM header to the shared output stream.
+- Reverted Snapclient mode from Opus back to the project-local PCM decoder after isolating the distortion and stop behavior to the Opus path.
+- Added focused Snapclient queue, PCM-format, and playback-idle logging so the serial monitor shows where playback stalls.
 - Retargeted the firmware to the ESP32-WROVER-IE-N16R8 with a project-local PlatformIO board definition and 16 MB flash partitioning.
 - Added centralized board pin mapping, including external DAC MCLK output and a boot-time mode select button.
 - Split the firmware into boot-selected Snapclient and Bluetooth receiver modes while keeping the external I2S DAC path shared.

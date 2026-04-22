@@ -1,23 +1,16 @@
 #include "snapclient_mode.h"
 
-#include "api/SnapProcessorRTOS.h"
-
+#include "project_snap_processor_rtos.h"
 #include "snapclient_config.h"
 
 SnapclientMode::SnapclientMode()
     : pcmProbe_(audioOutput_.stream()),
-      snapOutput_(audio_tools::AudioInfo(app_config::AUDIO_SAMPLE_RATE,
-                                         app_config::AUDIO_CHANNELS,
-                                         app_config::AUDIO_BITS_PER_SAMPLE)),
-      snapProcessor_(new snap_arduino::SnapProcessorRTOS(
-          snapOutput_,
+      snapProcessor_(new ProjectSnapProcessorRTOS(
           app_config::SNAP_OUTPUT_QUEUE_BYTES,
           app_config::SNAP_OUTPUT_ACTIVATION_PERCENT)),
-      timeSync_(app_config::SNAP_PROCESSING_LAG_MS,
-                app_config::SNAP_FIXED_PLAYBACK_FACTOR,
-                app_config::SNAP_SYNC_UPDATE_INTERVAL),
-      snapClient_(wifiClient_, pcmProbe_, codec_) {}
-
+      snapClient_(wifiClient_, pcmProbe_, codec_) {
+  codec_.setFormatTarget(pcmProbe_);
+}
 SnapclientMode::~SnapclientMode() = default;
 
 bool SnapclientMode::begin() {
@@ -50,7 +43,14 @@ bool SnapclientMode::begin() {
   Serial.print(app_config::snapServerIp());
   Serial.print(":");
   Serial.println(app_config::SNAP_SERVER_PORT);
-  Serial.printf("[audio] expected stream=%lu Hz, %u-bit, %u ch, codec=opus\n",
+  Serial.printf(
+      "[audio] configured fallback=%lu Hz, %u-bit, %u ch, codec=pcm (Snapcast WAV wrapper)\n",
+      static_cast<unsigned long>(app_config::AUDIO_SAMPLE_RATE),
+      app_config::AUDIO_BITS_PER_SAMPLE,
+      app_config::AUDIO_CHANNELS);
+  Serial.println(
+      "[audio] path=Snapserver PCM -> SnapcastPcmDecoder -> shared I2S DAC");
+  Serial.printf("[i2s] initial format=%lu Hz, %u-bit, %u ch\n",
                 static_cast<unsigned long>(app_config::AUDIO_SAMPLE_RATE),
                 app_config::AUDIO_BITS_PER_SAMPLE,
                 app_config::AUDIO_CHANNELS);
@@ -59,14 +59,13 @@ bool SnapclientMode::begin() {
                 static_cast<unsigned long>(ESP.getFreePsram()));
   Serial.printf("[snapclient] queue activation=%u%%\n",
                 app_config::SNAP_OUTPUT_ACTIVATION_PERCENT);
-  Serial.printf("[snapclient] queue entry slots=%d\n", RTOS_MAX_QUEUE_ENTRY_COUNT);
+  Serial.printf("[snapclient] queue entry slots=%d\n",
+                RTOS_MAX_QUEUE_ENTRY_COUNT);
+  Serial.println("[snapclient] decoder=SnapcastPcmDecoder");
   Serial.printf("[snapclient] output gain=%.2f\n",
-                static_cast<double>(app_config::SNAPCLIENT_OUTPUT_GAIN));
-  Serial.println("[snapclient] decoder=OpusAudioDecoder");
-  Serial.printf("[snapclient] sync=fixed factor=%.3f\n",
-                static_cast<double>(app_config::SNAP_FIXED_PLAYBACK_FACTOR));
+                app_config::SNAPCLIENT_OUTPUT_GAIN);
 
-  if (!snapClient_.begin(timeSync_)) {
+  if (!snapClient_.begin()) {
     Serial.println("[snapclient] begin failed");
     return false;
   }
@@ -85,6 +84,18 @@ void SnapclientMode::loop() {
       delay(app_config::RESTART_DELAY_MS);
       ESP.restart();
     }
+  }
+
+  snapProcessor_->logRuntime();
+  if (snapProcessor_->isOutputTimedOut(
+          app_config::SNAP_OUTPUT_IDLE_TIMEOUT_MS)) {
+    if (!playbackIdleLogged_) {
+      Serial.println(
+          "[snapclient] playback idle timeout: decoded PCM is no longer reaching the output task");
+      playbackIdleLogged_ = true;
+    }
+  } else {
+    playbackIdleLogged_ = false;
   }
 
   snapClient_.doLoop();

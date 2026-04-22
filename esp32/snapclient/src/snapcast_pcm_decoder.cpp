@@ -18,6 +18,20 @@ bool SnapcastPcmDecoder::begin() {
   return true;
 }
 
+void SnapcastPcmDecoder::setFormatTarget(audio_tools::AudioInfoSupport &target) {
+  formatTarget_ = &target;
+}
+
+void SnapcastPcmDecoder::setOutput(audio_tools::AudioStream &out_stream) {
+  outputStream_ = &out_stream;
+  AudioDecoder::setOutput(out_stream);
+}
+
+void SnapcastPcmDecoder::setOutput(Print &out_stream) {
+  outputStream_ = nullptr;
+  AudioDecoder::setOutput(out_stream);
+}
+
 void SnapcastPcmDecoder::end() {
   resetState();
 }
@@ -95,6 +109,24 @@ bool SnapcastPcmDecoder::applyHeaderAudioInfo() {
 
   const audio_tools::AudioInfo info(sampleRate, channels, bitsPerSample);
   setAudioInfo(info);
+  if (formatTarget_ != nullptr) {
+    formatTarget_->setAudioInfo(info);
+    Serial.printf(
+        "[snapclient] applied PCM header to output: %lu Hz, %u-bit, %u ch\n",
+        static_cast<unsigned long>(sampleRate),
+        bitsPerSample,
+        channels);
+  } else if (outputStream_ != nullptr) {
+    outputStream_->setAudioInfo(info);
+    Serial.printf(
+        "[snapclient] applied PCM header to output via stream: %lu Hz, %u-bit, %u ch\n",
+        static_cast<unsigned long>(sampleRate),
+        bitsPerSample,
+        channels);
+  } else if (!headerLogged_) {
+    Serial.println(
+        "[snapclient] PCM header parsed without output format target");
+  }
 
   if (!headerLogged_) {
     Serial.printf("[snapclient] PCM wrapper parsed: %lu Hz, %u-bit, %u ch\n",

@@ -18,8 +18,29 @@ class AudioProbeStream : public audio_tools::AudioStream {
 
   void setAudioInfo(audio_tools::AudioInfo newInfo) override {
     info = newInfo;
+    Serial.printf("[snapclient-pcm] format=%ld Hz, %d-bit, %d ch\n",
+                  static_cast<long>(newInfo.sample_rate),
+                  newInfo.bits_per_sample,
+                  newInfo.channels);
     if (target_ != nullptr) {
       target_->setAudioInfo(newInfo);
+      const audio_tools::AudioInfo applied = target_->audioInfo();
+      Serial.printf("[i2s] format update=%ld Hz, %d-bit, %d ch\n",
+                    static_cast<long>(applied.sample_rate),
+                    applied.bits_per_sample,
+                    applied.channels);
+      if (applied.sample_rate != newInfo.sample_rate ||
+          applied.bits_per_sample != newInfo.bits_per_sample ||
+          applied.channels != newInfo.channels) {
+        Serial.printf(
+            "[i2s] format mismatch requested=%ld/%d/%d applied=%ld/%d/%d\n",
+            static_cast<long>(newInfo.sample_rate),
+            newInfo.bits_per_sample,
+            newInfo.channels,
+            static_cast<long>(applied.sample_rate),
+            applied.bits_per_sample,
+            applied.channels);
+      }
     }
   }
 

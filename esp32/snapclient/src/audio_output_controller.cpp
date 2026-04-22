@@ -59,6 +59,10 @@ bool AudioOutputController::begin(uint32_t sampleRate) {
              app_config::AUDIO_CHANNELS,
              app_config::AUDIO_BITS_PER_SAMPLE);
 
+  Serial.printf("[i2s] begin format=%lu Hz, %u-bit, %u ch\n",
+                static_cast<unsigned long>(sampleRate),
+                app_config::AUDIO_BITS_PER_SAMPLE,
+                app_config::AUDIO_CHANNELS);
   Serial.printf("[i2s] bclk=%d ws=%d dout=%d\n",
                 board_config::I2S_BCLK_PIN,
                 board_config::I2S_LRCLK_PIN,

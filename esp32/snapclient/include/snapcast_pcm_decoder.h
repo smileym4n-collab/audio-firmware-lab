@@ -13,6 +13,9 @@ class SnapcastPcmDecoder : public audio_tools::AudioDecoder {
   bool begin() override;
   void end() override;
   size_t write(const uint8_t *data, size_t length) override;
+  void setFormatTarget(audio_tools::AudioInfoSupport &target);
+  void setOutput(audio_tools::AudioStream &out_stream) override;
+  void setOutput(Print &out_stream) override;
   operator bool() override { return true; }
 
  private:
@@ -23,6 +26,8 @@ class SnapcastPcmDecoder : public audio_tools::AudioDecoder {
   uint32_t readLe32(size_t offset) const;
 
   std::array<uint8_t, kHeaderProbeBytes> headerBytes_{};
+  audio_tools::AudioInfoSupport *formatTarget_ = nullptr;
+  audio_tools::AudioStream *outputStream_ = nullptr;
   size_t headerBytesRead_ = 0;
   bool headerProcessed_ = false;
   bool headerLogged_ = false;

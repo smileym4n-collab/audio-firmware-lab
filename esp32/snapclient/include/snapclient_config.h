@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.13 configuration.
-  Version: 0.9.13
+  ESP32 audio client v9.18 configuration.
+  Version: 0.9.18
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.13";
-static constexpr char PROJECT_VERSION[] = "0.9.13";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.18";
+static constexpr char PROJECT_VERSION[] = "0.9.18";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -59,7 +59,7 @@ static constexpr uint32_t MODE_SWITCH_MAGIC = 0x534D4F44;  // "SMOD"
 static constexpr uint32_t MODE_LED_BLUETOOTH_BLINK_INTERVAL_MS = 250;
 
 // ---------- Audio format ----------
-// Keep this aligned with the decoded Snapserver playback format.
+// Keep this aligned with the Snapserver PCM stream profile and the external DAC.
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 48000;
 static constexpr uint8_t AUDIO_BITS_PER_SAMPLE = 16;
 static constexpr uint8_t AUDIO_CHANNELS = 2;
@@ -73,18 +73,16 @@ static constexpr uint16_t I2S_DMA_BUFFER_SIZE = 1024;
 static constexpr bool I2S_USE_AUDIO_PLL = true;
 
 // ---------- Buffering / stability ----------
-// Keep enough Opus buffering for Wi-Fi jitter without waiting so long that
+// Keep enough PCM buffering for Wi-Fi jitter without waiting so long that
 // playback starts on stale data.
 static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
-// Start the RTOS output task early once the queue has a modest amount of data.
-static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 20;
-// Add a little headroom on the Snapclient path so full-scale Opus peaks do not
-// slam into the DAC path during bring-up. Bluetooth mode is unaffected.
-static constexpr float SNAPCLIENT_OUTPUT_GAIN = 0.5f;
+// Let the output task wait for a safer PCM cushion before it starts draining.
+static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 60;
+// Keep a little headroom for hot Spotify/librespot PCM and Snapclient's
+// resampler so full-scale content does not crunch in the DAC path.
+static constexpr float SNAPCLIENT_OUTPUT_GAIN = 0.70f;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
-static constexpr int SNAP_PROCESSING_LAG_MS = -172;
-static constexpr int SNAP_SYNC_UPDATE_INTERVAL = 10;
-static constexpr float SNAP_FIXED_PLAYBACK_FACTOR = 1.0f;
+static constexpr uint32_t SNAP_OUTPUT_IDLE_TIMEOUT_MS = 3000;
 
 // ---------- Runtime ----------
 static constexpr uint32_t CPU_FREQ_MHZ = 240;

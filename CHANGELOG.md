@@ -4,6 +4,9 @@ All notable changes to this repository will be recorded here.
 
 ## [Unreleased]
 
+### Added
+- `attiny/1616/ClassicCube` initial `0.1.0` ATtiny1616 Arduino sketch for PGA2311 volume control, mute handling, and single-relay toggle-switch input selection through a `ULN2003A`
+
 ### Changed
 - `esp32/snapclient` stability-first v2 update for standard ESP32 (no PSRAM): dedicated Snap processing task, Wi-Fi sleep disabled, CPU fixed to 240 MHz, and simplified runtime supervision for cleaner playback
 - `esp32/snapclient` version bumped to `0.2.0`
