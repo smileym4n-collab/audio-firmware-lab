@@ -8,6 +8,13 @@ class ProjectSnapOutput : public snap_arduino::SnapOutput {
   explicit ProjectSnapOutput(audio_tools::AudioInfo fallbackInfo)
       : fallbackInfo_(fallbackInfo) {}
 
+  ProjectSnapOutput(audio_tools::AudioInfo fallbackInfo,
+                    bool useResampler,
+                    bool allowBoost)
+      : fallbackInfo_(fallbackInfo),
+        useResampler_(useResampler),
+        allowBoost_(allowBoost) {}
+
   bool begin() override {
     ESP_LOGI(TAG, "begin");
     is_sync_started = false;
@@ -25,6 +32,8 @@ class ProjectSnapOutput : public snap_arduino::SnapOutput {
 
  private:
   audio_tools::AudioInfo fallbackInfo_;
+  bool useResampler_ = true;
+  bool allowBoost_ = true;
 
   audio_tools::AudioInfo sanitizeAudioInfo(audio_tools::AudioInfo info) const {
     if (info.sample_rate <= 0 || info.channels <= 0 ||
@@ -48,9 +57,17 @@ class ProjectSnapOutput : public snap_arduino::SnapOutput {
 
     auto vol_cfg = vol_stream.defaultConfig();
     vol_cfg.copyFrom(audio_info);
-    vol_cfg.allow_boost = true;
+    vol_cfg.allow_boost = allowBoost_;
     vol_stream.begin(vol_cfg);
     vol_stream.setVolume(vol * vol_factor);
+
+    if (useResampler_) {
+      resample.setOutput(*out);
+      vol_stream.setStream(resample);
+    } else {
+      vol_stream.setStream(*out);
+    }
+    decoder_stream.setStream(&vol_stream);
 
     out->setAudioInfo(audio_info);
     out->begin();
@@ -67,22 +84,26 @@ class ProjectSnapOutput : public snap_arduino::SnapOutput {
     }
     decoder_stream.addNotifyAudioChange(*this);
 
-    auto res_cfg = resample.defaultConfig();
-    res_cfg.step_size = p_snap_time_sync->getFactor();
-    res_cfg.copyFrom(audio_info);
-    if (!resample.begin(res_cfg)) {
-      ESP_LOGE(TAG, "resample begin failed for %d Hz, %d-bit, %d ch",
-               audio_info.sample_rate,
-               audio_info.bits_per_sample,
-               audio_info.channels);
-      is_audio_begin_called = false;
-      return false;
+    if (useResampler_) {
+      auto res_cfg = resample.defaultConfig();
+      res_cfg.step_size = p_snap_time_sync->getFactor();
+      res_cfg.copyFrom(audio_info);
+      if (!resample.begin(res_cfg)) {
+        ESP_LOGE(TAG, "resample begin failed for %d Hz, %d-bit, %d ch",
+                 audio_info.sample_rate,
+                 audio_info.bits_per_sample,
+                 audio_info.channels);
+        is_audio_begin_called = false;
+        return false;
+      }
     }
 
-    ESP_LOGI(TAG, "decoder/output ready at %d Hz, %d-bit, %d ch",
+    ESP_LOGI(TAG, "decoder/output ready at %d Hz, %d-bit, %d ch, resampler=%s, boost=%s",
              audio_info.sample_rate,
              audio_info.bits_per_sample,
-             audio_info.channels);
+             audio_info.channels,
+             useResampler_ ? "on" : "off",
+             allowBoost_ ? "on" : "off");
     is_audio_begin_called = true;
     return true;
   }

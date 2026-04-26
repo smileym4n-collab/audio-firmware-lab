@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.18 configuration.
-  Version: 0.9.18
+  ESP32 audio client v9.28 configuration.
+  Version: 0.9.28
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -23,8 +23,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.18";
-static constexpr char PROJECT_VERSION[] = "0.9.18";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.28";
+static constexpr char PROJECT_VERSION[] = "0.9.28";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -75,12 +75,35 @@ static constexpr bool I2S_USE_AUDIO_PLL = true;
 // ---------- Buffering / stability ----------
 // Keep enough PCM buffering for Wi-Fi jitter without waiting so long that
 // playback starts on stale data.
-static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 32768;
-// Let the output task wait for a safer PCM cushion before it starts draining.
-static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 60;
+static constexpr uint32_t SNAP_OUTPUT_QUEUE_BYTES = 65536;
+// Let the output task wait for a deeper PCM cushion before it starts draining.
+static constexpr uint8_t SNAP_OUTPUT_ACTIVATION_PERCENT = 75;
+// If the live queue falls under this threshold, pause output briefly so the
+// FIFO/Wi-Fi path can rebuild a healthier cushion instead of juddering through.
+static constexpr uint8_t SNAP_OUTPUT_REBUFFER_START_PERCENT = 55;
+// Resume output only once the queue has climbed back to this safer level.
+static constexpr uint8_t SNAP_OUTPUT_REBUFFER_RESUME_PERCENT = 75;
+// Hard stop-and-refill rebuffering was useful for diagnosis, but on this PCM
+// path it can create audible step changes. Leave it off when dynamic sync is
+// active so the resampler can absorb small drift more gracefully.
+static constexpr bool SNAPCLIENT_REBUFFER_ENABLED = false;
 // Keep a little headroom for hot Spotify/librespot PCM and Snapclient's
 // resampler so full-scale content does not crunch in the DAC path.
 static constexpr float SNAPCLIENT_OUTPUT_GAIN = 0.70f;
+// Final safety trim applied to the actual Snapclient PCM samples immediately
+// before they are handed to I2S. This does not affect Bluetooth mode.
+static constexpr float SNAPCLIENT_FINAL_PCM_GAIN = 0.50f;
+// Re-enable the Snapclient resampler, but only allow very small drift
+// corrections so the queue can stay centered without audible pitch wobble.
+static constexpr bool SNAPCLIENT_USE_RESAMPLER = true;
+static constexpr float SNAPCLIENT_MIN_PLAYBACK_FACTOR = 0.9990f;
+static constexpr float SNAPCLIENT_MAX_PLAYBACK_FACTOR = 1.0010f;
+static constexpr float SNAPCLIENT_UNITY_DEADBAND = 0.0002f;
+// Keep the upstream processing-lag baseline so Snapcast startup timing still
+// lands close to the server buffer target without changing Bluetooth logic.
+static constexpr int SNAPCLIENT_PROCESSING_LAG_MS = -172;
+// Adjust gently rather than chasing every update.
+static constexpr int SNAPCLIENT_SYNC_INTERVAL = 25;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
 static constexpr uint32_t SNAP_OUTPUT_IDLE_TIMEOUT_MS = 3000;
 
@@ -89,6 +112,13 @@ static constexpr uint32_t CPU_FREQ_MHZ = 240;
 static constexpr uint32_t SERIAL_BAUD = 115200;
 static constexpr uint32_t MAIN_LOOP_DELAY_MS = 1;
 static constexpr bool SNAP_USE_FAST_LOOP = true;
+static constexpr BaseType_t SNAPCLIENT_TASK_CORE = 1;
+static constexpr UBaseType_t SNAPCLIENT_TASK_PRIORITY = 4;
+static constexpr uint32_t SNAPCLIENT_TASK_STACK_WORDS = 8192;
+static constexpr uint32_t SNAPCLIENT_TASK_DELAY_MS = 1;
+// Leave periodic Snapclient stats off during live audio testing so the UART
+// does not add avoidable scheduling pressure. Warnings/errors still log.
+static constexpr bool SNAPCLIENT_PERIODIC_STATS_ENABLED = false;
 static constexpr uint32_t RESTART_DELAY_MS = 1500;
 static constexpr uint32_t AUDIO_DEBUG_LOG_INTERVAL_MS = 1000;
 

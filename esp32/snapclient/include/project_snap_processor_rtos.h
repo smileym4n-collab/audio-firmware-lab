@@ -8,9 +8,33 @@
 
 class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
  public:
+  ProjectSnapProcessorRTOS(snap_arduino::SnapOutput &output,
+                           int bufferSizeBytes,
+                           int activationAtPercent)
+      : snap_arduino::SnapProcessorRTOS(output,
+                                        bufferSizeBytes,
+                                        activationAtPercent) {
+    instance() = this;
+  }
+
   ProjectSnapProcessorRTOS(int bufferSizeBytes, int activationAtPercent)
       : snap_arduino::SnapProcessorRTOS(bufferSizeBytes, activationAtPercent) {
     instance() = this;
+  }
+
+  void setPeriodicStatsEnabled(bool enabled) { periodicStatsEnabled_ = enabled; }
+  void setRebufferEnabled(bool enabled) {
+    rebufferEnabled_ = enabled;
+    if (!rebufferEnabled_) {
+      rebuffering_ = false;
+    }
+  }
+  void setRebufferThresholds(uint8_t startPercent, uint8_t resumePercent) {
+    rebufferStartPercent_ = constrain(startPercent, 1, 99);
+    rebufferResumePercent_ = constrain(resumePercent, 1, 99);
+    if (rebufferResumePercent_ < rebufferStartPercent_) {
+      rebufferResumePercent_ = rebufferStartPercent_;
+    }
   }
 
   ~ProjectSnapProcessorRTOS() {
@@ -74,7 +98,7 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
 
     if (!p_snap_output->synchronizePlayback()) {
       ++syncWaitCount_;
-      maybeLogRuntime("sync-wait", true);
+      maybeLogSyncWait();
       return size;
     }
 
@@ -132,6 +156,12 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
   uint32_t syncWaitCount_ = 0;
   uint32_t notStartedDropCount_ = 0;
   uint32_t chunkTooLargeCount_ = 0;
+  uint32_t lastSyncWaitLogMs_ = 0;
+  bool periodicStatsEnabled_ = true;
+  bool rebufferEnabled_ = true;
+  bool rebuffering_ = false;
+  uint8_t rebufferStartPercent_ = 55;
+  uint8_t rebufferResumePercent_ = 75;
 
   static void taskCopy() {
     while (instance() != nullptr) {
@@ -145,6 +175,39 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
   }
 
   void copyTaskStep() {
+    const uint32_t fillBytes = static_cast<uint32_t>(buffer.available());
+    const uint32_t queueSize = static_cast<uint32_t>(buffer.size());
+    const uint32_t resumeLimit =
+        (queueSize * static_cast<uint32_t>(rebufferResumePercent_)) / 100U;
+    const uint32_t lowWaterLimit =
+        (queueSize * static_cast<uint32_t>(rebufferStartPercent_)) / 100U;
+
+    if (rebufferEnabled_ && !rebuffering_ && fillBytes > 0 &&
+        fillBytes < lowWaterLimit) {
+      rebuffering_ = true;
+      if (periodicStatsEnabled_) {
+        Serial.printf("[snapclient-buf] rebuffer-start fill=%lu/%lu\n",
+                      static_cast<unsigned long>(fillBytes),
+                      static_cast<unsigned long>(buffer.size()));
+        maybeLogRuntime("rebuffer-start", true);
+      }
+    }
+
+    if (rebufferEnabled_ && rebuffering_) {
+      if (fillBytes < resumeLimit) {
+        delay(1);
+        return;
+      }
+
+      rebuffering_ = false;
+      if (periodicStatsEnabled_) {
+        Serial.printf("[snapclient-buf] rebuffer-end fill=%lu/%lu\n",
+                      static_cast<unsigned long>(fillBytes),
+                      static_cast<unsigned long>(buffer.size()));
+        maybeLogRuntime("rebuffer-end", true);
+      }
+    }
+
     size_t chunkSize = 0;
     if (size_queue.dequeue(chunkSize)) {
       if (chunkBuffer_.size() < chunkSize) {
@@ -190,6 +253,10 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
   }
 
   void maybeLogRuntime(const char *reason, bool force = false) {
+    if (!force && !periodicStatsEnabled_) {
+      return;
+    }
+
     const uint32_t nowMs = millis();
     const uint32_t fillBytes = static_cast<uint32_t>(buffer.available());
     if (fillBytes > peakFillBytes_) {
@@ -218,5 +285,14 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
         static_cast<unsigned long>(chunkTooLargeCount_),
         reason != nullptr ? reason : "-");
     lastLogMs_ = nowMs;
+  }
+
+  void maybeLogSyncWait() {
+    const uint32_t nowMs = millis();
+    if (periodicStatsEnabled_ || syncWaitCount_ == 1 ||
+        (nowMs - lastSyncWaitLogMs_) >= 250) {
+      maybeLogRuntime("sync-wait", true);
+      lastSyncWaitLogMs_ = nowMs;
+    }
   }
 };

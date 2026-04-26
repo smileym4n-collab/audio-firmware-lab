@@ -1,6 +1,6 @@
 /*
-  Project: ESP32 audio client v9.18 (runtime mode toggle with optional MCLK)
-  Version: 0.9.18
+  Project: ESP32 audio client v9.28 (runtime mode toggle with optional MCLK)
+  Version: 0.9.28
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):

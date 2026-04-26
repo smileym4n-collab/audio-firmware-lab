@@ -1,6 +1,6 @@
-# ESP32 Audio Client v9.18
+# ESP32 Audio Client v9.28
 
-Version: **0.9.18**
+Version: **0.9.28**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and moves the Snapclient path back to the project's **PCM** stream handling after isolating the remaining playback failure to the Opus path. Bluetooth mode, mode switching, and the shared I2S output remain unchanged.
 
@@ -152,7 +152,10 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 - enables PSRAM-backed allocation for larger buffers
 - uses the project-local `SnapcastPcmDecoder` to handle Snapcast's PCM WAV wrapper cleanly
 - logs the Snapserver PCM header, RTOS queue fill, and decoded PCM activity on the real output path
-- keeps the shared external I2S DAC path aligned to `48000 Hz / 16-bit / stereo`
+- applies the parsed Snapcast PCM header to the live output path and keeps Snapclient on a gently clamped dynamic-sync PCM playback mode
+- runs the Snapclient network/decode loop on its own RTOS task again, matching the earlier stable bench profile more closely
+- keeps periodic Snapclient PCM/buffer stat logs disabled by default during live playback testing so only startup and fault lines remain
+- keeps a deeper Snapclient queue cushion and deliberately re-buffers earlier when the live fill falls too low, preferring a short refill pause over sustained jittery playback
 - restarts on Wi-Fi loss instead of trying to continue in a bad state
 
 ### Bluetooth mode
@@ -238,8 +241,57 @@ pio run -e esp32-wrover-ie-n16r8
 - Increased the Snapclient RTOS queue entry count from the upstream default so Opus packet writes do not hit `size_queue full` long before the PSRAM byte buffer is actually full.
 - Added startup logging for the configured Snapclient queue entry slot count.
 
-## Change summary from v0.9.17 -> v0.9.18
+## Change summary from v0.9.18 -> v0.9.19
 
-- Added a Snapclient-only output gain trim so hot PCM from librespot/Spotify has headroom before the shared resampler and DAC path.
-- Added a startup log for the active Snapclient output gain.
+- Added a final Snapclient-only PCM gain stage immediately before I2S so the actual outgoing samples have guaranteed headroom.
+- Added a startup log for the final Snapclient PCM gain.
 - Left Bluetooth mode, mode switching, and the shared I2S output path unchanged.
+
+## Change summary from v0.9.19 -> v0.9.20
+
+- Switched the Snapclient PCM path to fixed Snapcast timing so the ESP32 no longer chases dynamic playback-factor updates during normal PCM playback.
+- Disabled the Snapclient-only resampler/boost stage in the project-local Snap output path to prioritize clean PCM output over elastic clock correction.
+- Added startup logs that show the fixed-sync factor and that the Snapclient resampler is intentionally off.
+
+## Change summary from v0.9.20 -> v0.9.21
+
+- Reduced the ESP32 core log level back to the older low-noise setting so per-packet Snapclient info logs no longer swamp the serial port during playback.
+- Moved the Snapclient `doLoop()` processing back onto its own RTOS task, following the earlier stable WROOM bench profile more closely.
+- Added a startup log for the dedicated Snapclient task configuration.
+
+## Change summary from v0.9.21 -> v0.9.22
+
+- Disabled the periodic Snapclient PCM and buffer-stat heartbeat logs by default so live playback testing is not perturbed by once-per-second UART output.
+- Kept startup, format-change, and warning/error logging intact so failure states still show up clearly.
+
+## Change summary from v0.9.22 -> v0.9.23
+
+- Fixed a Snapclient boot crash where the PCM probe tried to re-open the already-started shared I2S stream during codec-header handling.
+- Kept the shared Bluetooth/I2S output ownership unchanged and limited the fix to the Snapclient wrapper path.
+
+## Change summary from v0.9.23 -> v0.9.24
+
+- Added a tiny one-shot Snapclient PCM probe that logs the first few decoded writes after a format change, even when periodic stats are disabled.
+- Kept the log volume low so live playback testing still avoids the old serial flood.
+
+## Change summary from v0.9.24 -> v0.9.25
+
+- Added Snapclient queue re-buffering when the live PCM cushion falls below a low-water mark, to trade brief refill pauses for less judder and stutter.
+- Added explicit `rebuffer-start` and `rebuffer-end` log lines for the new low-buffer recovery path.
+
+## Change summary from v0.9.25 -> v0.9.26
+
+- Increased the Snapclient queue depth and raised the startup/resume cushion so the WROVER keeps a healthier PCM reserve during Wi-Fi jitter.
+- Made the low-buffer rebuffer thresholds explicit and more conservative so playback recovers before the live queue is nearly empty.
+- Reduced repeated `sync-wait` startup chatter so the serial monitor stays quieter during bring-up.
+
+## Change summary from v0.9.26 -> v0.9.27
+
+- Kept the deeper queue and rebuffer behavior from `v0.9.26` but stopped printing repeated `rebuffer-start` and `rebuffer-end` lines while periodic stats are disabled.
+- Left warning and fault logging intact so real failures still show up in the serial monitor.
+
+## Change summary from v0.9.27 -> v0.9.28
+
+- Replaced the fixed `1.0x` Snapclient timing path with a tightly clamped dynamic sync so small long-run clock drift can be corrected without audible pause-and-refill behavior.
+- Re-enabled the Snapclient resampler for that gentle drift correction but limited it to a very narrow range around unity.
+- Disabled the hard Snapclient rebuffer intervention by default, since the repeated stop-and-refill cycle itself was becoming audible.

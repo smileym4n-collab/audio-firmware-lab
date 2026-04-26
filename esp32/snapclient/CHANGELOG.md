@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+- Replaced the fixed Snapclient timing path with a tightly clamped dynamic sync so the ESP32 can absorb small long-run clock drift without repeated pause-and-refill behavior.
+- Re-enabled the Snapclient resampler in a very narrow range around `1.0x` and disabled the hard rebuffer intervention by default.
+- Kept the deeper Snapclient rebuffer behavior but stopped printing repetitive `rebuffer-start` and `rebuffer-end` logs while periodic stats are disabled.
+- Increased the Snapclient PCM queue depth and activation threshold so playback starts and resumes with a healthier cushion on the WROVER target.
+- Made the Snapclient rebuffer thresholds explicit and more conservative to reduce the remaining judder when Wi-Fi delivery wobbles.
+- Reduced repeated `sync-wait` startup logs so the serial monitor stays quieter during live playback tests.
+- Added Snapclient queue re-buffering so low queue fill triggers a controlled refill instead of trying to play through Wi-Fi jitter with almost no cushion.
+- Added `rebuffer-start` and `rebuffer-end` log lines for the low-buffer recovery path.
+- Added a one-shot Snapclient PCM first-write probe so early decoded output can be verified without re-enabling continuous log spam.
+- Fixed a Snapclient boot crash caused by re-opening the shared I2S stream during PCM codec-header setup.
+- Disabled periodic Snapclient PCM and queue-stat heartbeat logs by default during live playback testing.
+- Kept startup, format, and warning/error logs active so real faults are still visible.
+- Reduced the ESP32 core log level so verbose per-packet Snapclient library info logs no longer run during normal playback.
+- Moved the Snapclient processing loop back onto its own RTOS task to match the earlier stable bench profile more closely.
+- Added a startup log for the dedicated Snapclient task configuration.
+- Switched the Snapclient PCM path to fixed Snapcast timing and disabled the Snapclient-only resampler stage to reduce remaining distortion after rate alignment and headroom fixes.
+- Added startup logs for the Snapclient fixed-sync factor and resampler-off PCM mode.
+- Added a final Snapclient-only PCM gain stage right before I2S to force headroom on the actual outgoing PCM samples.
+- Added a startup log for the final Snapclient PCM gain value.
 - Added a Snapclient-only gain trim before the shared resampler/output path to reduce distortion from full-scale PCM material.
 - Added a startup log for the active Snapclient output gain factor.
 - Fixed the Snapclient PCM header handoff so the parsed WAV header format is pushed into the active downstream stream even when the library exposes the target as `Print`.
