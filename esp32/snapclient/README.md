@@ -1,8 +1,8 @@
-# ESP32 Audio Client v9.28
+# ESP32 Audio Client v9.29
 
-Version: **0.9.28**
+Version: **0.9.29**
 
-This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, and moves the Snapclient path back to the project's **PCM** stream handling after isolating the remaining playback failure to the Opus path. Bluetooth mode, mode switching, and the shared I2S output remain unchanged.
+This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and moves private Wi-Fi credentials into a local `include/secrets.h` file. Bluetooth mode, mode switching, and the shared I2S output remain unchanged.
 
 Default behavior after this change:
 
@@ -129,7 +129,8 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 
 ## Configuration files
 
-- [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Wi-Fi credentials, Snapserver address, Bluetooth device name, runtime tuning, mode-switch timing, and visible version values
+- [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Snapserver address, Bluetooth device name, runtime tuning, mode-switch timing, and visible version values
+- [secrets.example.h](/C:/audio-firmware-lab/esp32/snapclient/include/secrets.example.h) - template for the local `include/secrets.h` Wi-Fi credentials file
 - [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) - all user-editable hardware pin assignments, including optional MCLK control
 - [src/audio_output_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/audio_output_controller.cpp) - shared I2S output setup for both Snapclient and Bluetooth modes, including the single MCLK enable/disable decision
 - [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, runtime mode setup, and LED initialization
@@ -196,6 +197,10 @@ Why:
 ## Build / flash
 
 The project defaults to the WROVER target in `platformio.ini`.
+
+Before building for the first time, copy `include/secrets.example.h` to
+`include/secrets.h` and set your local Wi-Fi SSID and password. Keep
+`include/secrets.h` out of git.
 
 ```bash
 cd esp32/snapclient
@@ -295,3 +300,8 @@ pio run -e esp32-wrover-ie-n16r8
 - Replaced the fixed `1.0x` Snapclient timing path with a tightly clamped dynamic sync so small long-run clock drift can be corrected without audible pause-and-refill behavior.
 - Re-enabled the Snapclient resampler for that gentle drift correction but limited it to a very narrow range around unity.
 - Disabled the hard Snapclient rebuffer intervention by default, since the repeated stop-and-refill cycle itself was becoming audible.
+
+## Change summary from v0.9.28 -> v0.9.29
+
+- Moved private Wi-Fi credentials out of the committed configuration and into a local `include/secrets.h` file.
+- Added `include/secrets.example.h` as the copyable template for local builds.

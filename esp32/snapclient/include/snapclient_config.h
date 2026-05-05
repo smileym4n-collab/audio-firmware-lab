@@ -1,12 +1,20 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.28 configuration.
-  Version: 0.9.28
+  ESP32 audio client v9.29 configuration.
+  Version: 0.9.29
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
 #include <Arduino.h>
+
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#error "Copy include/secrets.example.h to include/secrets.h and set Wi-Fi credentials."
+#define SNAP_WIFI_SSID_SECRET ""
+#define SNAP_WIFI_PASSWORD_SECRET ""
+#endif
 
 namespace app_config {
 
@@ -23,13 +31,13 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.28";
-static constexpr char PROJECT_VERSION[] = "0.9.28";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.29";
+static constexpr char PROJECT_VERSION[] = "0.9.29";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
-static constexpr char SNAP_WIFI_SSID[] = "TomEmmaWireless";
-static constexpr char SNAP_WIFI_PASSWORD[] = "aw3s0m3w1ththr33s";
+static constexpr char SNAP_WIFI_SSID[] = SNAP_WIFI_SSID_SECRET;
+static constexpr char SNAP_WIFI_PASSWORD[] = SNAP_WIFI_PASSWORD_SECRET;
 static constexpr uint32_t SNAP_WIFI_CONNECT_TIMEOUT_MS = 20000;
 static constexpr uint32_t SNAP_WIFI_RETRY_DELAY_MS = 500;
 static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;

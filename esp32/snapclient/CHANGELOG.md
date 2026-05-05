@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Moved private Wi-Fi credentials out of the committed configuration and into a local `include/secrets.h` file.
+- Added `include/secrets.example.h` as the copyable template for local builds.
 - Replaced the fixed Snapclient timing path with a tightly clamped dynamic sync so the ESP32 can absorb small long-run clock drift without repeated pause-and-refill behavior.
 - Re-enabled the Snapclient resampler in a very narrow range around `1.0x` and disabled the hard rebuffer intervention by default.
 - Kept the deeper Snapclient rebuffer behavior but stopped printing repetitive `rebuffer-start` and `rebuffer-end` logs while periodic stats are disabled.
