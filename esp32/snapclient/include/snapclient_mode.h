@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <WiFi.h>
+#include <WebServer.h>
 
 #include "AudioTools.h"
 #include "SnapClient.h"
@@ -27,11 +28,16 @@ class SnapclientMode : public RuntimeMode {
 
  private:
   bool connectWifiWithTimeout();
+  void beginControlApi();
+  void handleControlApi();
+  void sendControlStatus();
+  void handleSetChannelMode();
   static void snapClientTaskEntry(void *context);
   void snapClientTaskLoop();
 
   WiFiClient wifiClient_;
   AudioOutputController audioOutput_;
+  WebServer controlServer_;
   AudioProbeStream pcmProbe_;
   SnapcastPcmDecoder codec_;
   ProjectSnapOutput snapOutput_;

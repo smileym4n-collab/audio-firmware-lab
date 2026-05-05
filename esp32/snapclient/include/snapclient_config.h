@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  ESP32 audio client v9.29 configuration.
-  Version: 0.9.29
+  ESP32 audio client v9.30 configuration.
+  Version: 0.10.0
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -31,8 +31,8 @@ inline const char *operatingModeName(OperatingMode mode) {
   }
 }
 
-static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.29";
-static constexpr char PROJECT_VERSION[] = "0.9.29";
+static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
+static constexpr char PROJECT_VERSION[] = "0.10.0";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -41,6 +41,11 @@ static constexpr char SNAP_WIFI_PASSWORD[] = SNAP_WIFI_PASSWORD_SECRET;
 static constexpr uint32_t SNAP_WIFI_CONNECT_TIMEOUT_MS = 20000;
 static constexpr uint32_t SNAP_WIFI_RETRY_DELAY_MS = 500;
 static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;
+
+// ---------- Local control API ----------
+// Used by companion apps for ESP32-specific controls that Snapserver does not
+// expose, such as local channel routing.
+static constexpr uint16_t CONTROL_API_PORT = 8080;
 
 // ---------- Snapserver ----------
 inline IPAddress snapServerIp() { return IPAddress(192, 168, 5, 106); }

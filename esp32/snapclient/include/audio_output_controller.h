@@ -1,11 +1,14 @@
 #pragma once
 
 #include "AudioTools.h"
+#include "channel_mode.h"
 
 class AudioOutputController {
  public:
   bool begin(uint32_t sampleRate);
   void updateAudioFormat(uint32_t sampleRate, uint8_t channels, uint8_t bitsPerSample);
+  void setChannelMode(app_config::ChannelMode mode);
+  app_config::ChannelMode channelMode() const { return channelMode_; }
   size_t write(const uint8_t *data, size_t length);
 
   audio_tools::I2SStream &stream() { return i2sOut_; }
@@ -15,7 +18,9 @@ class AudioOutputController {
                   uint32_t sampleRate,
                   uint8_t channels,
                   uint8_t bitsPerSample);
+  size_t writeRaw(const uint8_t *data, size_t length);
 
   audio_tools::I2SStream i2sOut_;
   audio_tools::I2SConfig config_;
+  app_config::ChannelMode channelMode_ = app_config::ChannelMode::Stereo;
 };

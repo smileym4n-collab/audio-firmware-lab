@@ -1,14 +1,15 @@
-# ESP32 Audio Client v9.29
+# ESP32 Audio Client v9.30
 
-Version: **0.9.29**
+Version: **0.10.0**
 
-This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and moves private Wi-Fi credentials into a local `include/secrets.h` file. Bluetooth mode, mode switching, and the shared I2S output remain unchanged.
+This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and adds a Snapclient-mode local HTTP control API for companion apps such as SnapApp. Bluetooth mode remains simple connect-and-play and does not expose or use local channel routing.
 
 Default behavior after this change:
 
 - **cold boot always starts in Snapclient mode**
 - **press the mode button while running to reboot into Bluetooth mode**
 - **MCLK is disabled by default**
+- **Snapclient mode exposes `Stereo`, `Left`, and `Right` channel routing**
 
 That default suits many common **PCM5102-style DAC modules**, which usually do not require a separate MCLK line.
 
@@ -127,6 +128,23 @@ Recommended default LED wiring:
 
 If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
 
+## SnapApp control API
+
+Snapclient mode exposes a small local HTTP API on port `8080` for controls that Snapserver does not provide directly.
+
+- `GET /api/status` returns firmware identity, version, runtime mode, current channel mode, and capabilities.
+- `POST /api/channel-mode` accepts `{"channel_mode":"stereo"}`, `{"channel_mode":"left"}`, or `{"channel_mode":"right"}`.
+
+Channel routing applies only in Snapclient mode:
+
+- `stereo`: left DAC channel plays left, right DAC channel plays right
+- `left`: both DAC channels play the left input channel
+- `right`: both DAC channels play the right input channel
+
+The selected channel mode is saved in ESP32 preferences and restored on later Snapclient boots. Bluetooth mode ignores this setting and remains a simple single-speaker receiver.
+
+See [control-api.md](/C:/audio-firmware-lab/esp32/snapclient/docs/control-api.md) for request and response examples.
+
 ## Configuration files
 
 - [snapclient_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/snapclient_config.h) - Snapserver address, Bluetooth device name, runtime tuning, mode-switch timing, and visible version values
@@ -139,6 +157,7 @@ If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board
 - [src/mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp) - mode LED behavior
 - [src/snapclient_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapclient_mode.cpp) - Wi-Fi Snapclient mode
 - [src/bluetooth_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/bluetooth_mode.cpp) - Bluetooth A2DP sink mode
+- [docs/control-api.md](/C:/audio-firmware-lab/esp32/snapclient/docs/control-api.md) - local companion-app HTTP API
 - [docs/snapserver.md](/C:/audio-firmware-lab/esp32/snapclient/docs/snapserver.md) - Snapserver-side recommendations
 
 ## Firmware behavior
