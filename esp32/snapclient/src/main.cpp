@@ -1,6 +1,6 @@
 /*
-  Project: ESP32 audio client v9.29 (runtime mode toggle with optional MCLK)
-  Version: 0.9.29
+  Project: ESP32 audio client v9.30 (SnapApp channel control API)
+  Version: 0.10.0
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -14,6 +14,7 @@
   Notes:
   - Cold boot always starts in Snapclient mode.
   - Press the runtime mode button to reboot into the other mode.
+  - Snapclient mode exposes a local HTTP control API on port 8080.
   - Snapclient mode drives the mode LED solid on.
   - Bluetooth mode blinks the mode LED.
   - MCLK is optional and disabled by default for PCM5102-style builds.

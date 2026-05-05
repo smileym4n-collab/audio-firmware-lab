@@ -1,10 +1,47 @@
 #include "snapclient_mode.h"
 
+#include "channel_mode_store.h"
 #include "project_snap_processor_rtos.h"
 #include "snapclient_config.h"
 
+namespace {
+
+bool extractChannelMode(const String &body, app_config::ChannelMode &mode) {
+  app_config::ChannelMode rawMode = app_config::ChannelMode::Stereo;
+  if (app_config::parseChannelMode(body, rawMode)) {
+    mode = rawMode;
+    return true;
+  }
+
+  const int keyIndex = body.indexOf("\"channel_mode\"");
+  if (keyIndex < 0) {
+    return false;
+  }
+
+  const int colonIndex = body.indexOf(':', keyIndex);
+  if (colonIndex < 0) {
+    return false;
+  }
+
+  const int valueStart = body.indexOf('"', colonIndex + 1);
+  if (valueStart < 0) {
+    return false;
+  }
+
+  const int valueEnd = body.indexOf('"', valueStart + 1);
+  if (valueEnd < 0) {
+    return false;
+  }
+
+  const String value = body.substring(valueStart + 1, valueEnd);
+  return app_config::parseChannelMode(value, mode);
+}
+
+}  // namespace
+
 SnapclientMode::SnapclientMode()
-    : pcmProbe_(audioOutput_.stream()),
+    : controlServer_(app_config::CONTROL_API_PORT),
+      pcmProbe_(audioOutput_.stream()),
       snapOutput_(audio_tools::AudioInfo(app_config::AUDIO_SAMPLE_RATE,
                                          app_config::AUDIO_CHANNELS,
                                          app_config::AUDIO_BITS_PER_SAMPLE),
@@ -48,6 +85,10 @@ bool SnapclientMode::begin() {
     Serial.println("[i2s] begin failed");
     return false;
   }
+  audioOutput_.setChannelMode(loadChannelModePreference());
+  Serial.printf("[channel] snapclient channel mode=%s\n",
+                app_config::channelModeName(audioOutput_.channelMode()));
+  beginControlApi();
 
   snapClient_.setSnapProcessor(*snapProcessor_);
   snapClient_.setSnapTimeSync(dynamicTimeSync_);
@@ -123,6 +164,8 @@ bool SnapclientMode::begin() {
 }
 
 void SnapclientMode::loop() {
+  handleControlApi();
+
   const uint32_t nowMs = millis();
 
   if (nowMs - lastWifiCheckMs_ >= app_config::SNAP_WIFI_MONITOR_INTERVAL_MS) {
@@ -183,4 +226,53 @@ bool SnapclientMode::connectWifiWithTimeout() {
 
   Serial.println();
   return WiFi.status() == WL_CONNECTED;
+}
+
+void SnapclientMode::beginControlApi() {
+  controlServer_.on("/api/status", HTTP_GET, [this]() { sendControlStatus(); });
+  controlServer_.on("/api/channel-mode", HTTP_POST, [this]() { handleSetChannelMode(); });
+  controlServer_.onNotFound([this]() {
+    controlServer_.send(404, "application/json", "{\"error\":\"not_found\"}");
+  });
+  controlServer_.begin();
+
+  Serial.printf("[control] api=http://%s:%u/api/status\n",
+                WiFi.localIP().toString().c_str(),
+                app_config::CONTROL_API_PORT);
+}
+
+void SnapclientMode::handleControlApi() {
+  controlServer_.handleClient();
+}
+
+void SnapclientMode::sendControlStatus() {
+  String response = "{";
+  response += "\"project\":\"";
+  response += app_config::PROJECT_TITLE;
+  response += "\",\"version\":\"";
+  response += app_config::PROJECT_VERSION;
+  response += "\",\"runtime_mode\":\"snapclient\"";
+  response += ",\"channel_mode\":\"";
+  response += app_config::channelModeName(audioOutput_.channelMode());
+  response += "\",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"]}";
+  response += "}";
+
+  controlServer_.send(200, "application/json", response);
+}
+
+void SnapclientMode::handleSetChannelMode() {
+  const String body = controlServer_.arg("plain");
+  app_config::ChannelMode requestedMode = app_config::ChannelMode::Stereo;
+
+  if (!extractChannelMode(body, requestedMode)) {
+    controlServer_.send(
+        400,
+        "application/json",
+        "{\"error\":\"invalid_channel_mode\",\"allowed\":[\"stereo\",\"left\",\"right\"]}");
+    return;
+  }
+
+  audioOutput_.setChannelMode(requestedMode);
+  saveChannelModePreference(requestedMode);
+  sendControlStatus();
 }

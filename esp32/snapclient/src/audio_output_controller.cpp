@@ -80,6 +80,15 @@ bool AudioOutputController::begin(uint32_t sampleRate) {
   return i2sOut_.begin(config_);
 }
 
+void AudioOutputController::setChannelMode(app_config::ChannelMode mode) {
+  if (channelMode_ == mode) {
+    return;
+  }
+
+  channelMode_ = mode;
+  Serial.printf("[channel] mode=%s\n", app_config::channelModeName(channelMode_));
+}
+
 void AudioOutputController::updateAudioFormat(uint32_t sampleRate,
                                               uint8_t channels,
                                               uint8_t bitsPerSample) {
@@ -97,6 +106,48 @@ void AudioOutputController::updateAudioFormat(uint32_t sampleRate,
 }
 
 size_t AudioOutputController::write(const uint8_t *data, size_t length) {
+  if (channelMode_ == app_config::ChannelMode::Stereo ||
+      config_.channels != 2 ||
+      config_.bits_per_sample != 16) {
+    return writeRaw(data, length);
+  }
+
+  constexpr size_t kRoutedSampleCount = 256;
+  int16_t routedSamples[kRoutedSampleCount];
+  constexpr size_t kRoutedFrameCount = kRoutedSampleCount / 2;
+  constexpr size_t kBytesPerFrame = sizeof(int16_t) * 2;
+
+  const int16_t *inputSamples = reinterpret_cast<const int16_t *>(data);
+  const size_t frameCount = length / kBytesPerFrame;
+  const size_t trailingBytes = length % kBytesPerFrame;
+  size_t totalWritten = 0;
+  size_t frameOffset = 0;
+
+  while (frameOffset < frameCount) {
+    const size_t framesThisPass = min(kRoutedFrameCount, frameCount - frameOffset);
+    for (size_t i = 0; i < framesThisPass; ++i) {
+      const size_t sourceIndex = (frameOffset + i) * 2;
+      const int16_t selectedSample =
+          channelMode_ == app_config::ChannelMode::Left
+              ? inputSamples[sourceIndex]
+              : inputSamples[sourceIndex + 1];
+      routedSamples[i * 2] = selectedSample;
+      routedSamples[(i * 2) + 1] = selectedSample;
+    }
+
+    totalWritten += writeRaw(reinterpret_cast<const uint8_t *>(routedSamples),
+                             framesThisPass * kBytesPerFrame);
+    frameOffset += framesThisPass;
+  }
+
+  if (trailingBytes > 0) {
+    totalWritten += writeRaw(data + (frameCount * kBytesPerFrame), trailingBytes);
+  }
+
+  return totalWritten;
+}
+
+size_t AudioOutputController::writeRaw(const uint8_t *data, size_t length) {
   static uint32_t windowStartMs = millis();
   static uint32_t windowBytes = 0;
   static uint16_t windowPeak = 0;

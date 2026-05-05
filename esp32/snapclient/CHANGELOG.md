@@ -4,6 +4,12 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.10.0]
+
+- Added a Snapclient-mode HTTP control API for companion apps to read firmware capabilities and set local channel routing.
+- Added persistent Snapclient channel routing modes: stereo, left-to-both-DAC-channels, and right-to-both-DAC-channels.
+- Documented the SnapApp control API and clarified that Bluetooth mode ignores local channel routing.
+
 ## [0.9.29]
 
 - Moved private Wi-Fi credentials out of the committed configuration and into a local `include/secrets.h` file.
