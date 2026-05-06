@@ -1,6 +1,6 @@
 /*
   Project: ESP32 audio client v9.30 (SnapApp channel control API)
-  Version: 0.10.0
+  Version: 0.10.1
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -65,7 +65,7 @@ void setup() {
   setCpuFrequencyMhz(app_config::CPU_FREQ_MHZ);
 
   Serial.printf("\n[boot] %s\n", app_config::PROJECT_TITLE);
-  Serial.printf("[version] %s\n", app_config::PROJECT_VERSION);
+  Serial.printf("[version] %s\n", app_config::FIRMWARE_VERSION);
   Serial.printf("[target] %s\n", app_config::TARGET_MODULE);
   Serial.printf("[cpu] %u MHz\n", getCpuFrequencyMhz());
   configurePsramAllocator();

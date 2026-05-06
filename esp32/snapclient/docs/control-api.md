@@ -23,7 +23,8 @@ Example response:
 ```json
 {
   "project": "ESP32 Audio Client v9.30",
-  "version": "0.10.0",
+  "version": "0.10.1",
+  "firmwareVersion": "0.10.1",
   "runtime_mode": "snapclient",
   "channel_mode": "stereo",
   "capabilities": {

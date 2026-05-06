@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.10.0
+  Version: 0.10.1
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char PROJECT_VERSION[] = "0.10.0";
+static constexpr char FIRMWARE_VERSION[] = "0.10.1";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------

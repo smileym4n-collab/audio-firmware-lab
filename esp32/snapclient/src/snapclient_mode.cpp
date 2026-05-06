@@ -250,7 +250,9 @@ void SnapclientMode::sendControlStatus() {
   response += "\"project\":\"";
   response += app_config::PROJECT_TITLE;
   response += "\",\"version\":\"";
-  response += app_config::PROJECT_VERSION;
+  response += app_config::FIRMWARE_VERSION;
+  response += "\",\"firmwareVersion\":\"";
+  response += app_config::FIRMWARE_VERSION;
   response += "\",\"runtime_mode\":\"snapclient\"";
   response += ",\"channel_mode\":\"";
   response += app_config::channelModeName(audioOutput_.channelMode());

@@ -4,6 +4,10 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.10.1] - 2026-05-06
+
+- Added `firmwareVersion` to the Snapclient control API status response and aligned the Snapserver-reported Snapclient version with the firmware version.
+
 ## [0.10.0]
 
 - Added a Snapclient-mode HTTP control API for companion apps to read firmware capabilities and set local channel routing.
