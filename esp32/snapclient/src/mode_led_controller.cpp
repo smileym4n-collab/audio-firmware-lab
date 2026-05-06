@@ -3,8 +3,10 @@
 #include "board_config.h"
 
 void ModeLedController::begin() {
-  pinMode(board_config::MODE_STATUS_LED_PIN, OUTPUT);
-  write(false);
+  pinMode(board_config::WIFI_STATUS_LED_PIN, OUTPUT);
+  pinMode(board_config::BT_STATUS_LED_PIN, OUTPUT);
+  writeWifiLed(false);
+  writeBtLed(false);
 }
 
 void ModeLedController::setMode(app_config::OperatingMode mode) {
@@ -14,9 +16,11 @@ void ModeLedController::setMode(app_config::OperatingMode mode) {
   // Snapclient is the normal appliance mode, so keep the LED steady.
   // Bluetooth is the alternate boot mode, so blink to make it obvious.
   if (activeMode_ == app_config::OperatingMode::Snapclient) {
-    write(true);
+    writeWifiLed(true);
+    writeBtLed(false);
   } else {
-    write(false);
+    writeWifiLed(false);
+    writeBtLed(false);
   }
 }
 
@@ -31,13 +35,20 @@ void ModeLedController::update() {
   }
 
   lastToggleMs_ = nowMs;
-  write(!ledOn_);
+  writeBtLed(!btLedOn_);
 }
 
-void ModeLedController::write(bool on) {
-  ledOn_ = on;
+void ModeLedController::writeWifiLed(bool on) {
   const int level = on
-                        ? (board_config::MODE_STATUS_LED_ACTIVE_HIGH ? HIGH : LOW)
-                        : (board_config::MODE_STATUS_LED_ACTIVE_HIGH ? LOW : HIGH);
-  digitalWrite(board_config::MODE_STATUS_LED_PIN, level);
+                        ? (board_config::WIFI_STATUS_LED_ACTIVE_HIGH ? HIGH : LOW)
+                        : (board_config::WIFI_STATUS_LED_ACTIVE_HIGH ? LOW : HIGH);
+  digitalWrite(board_config::WIFI_STATUS_LED_PIN, level);
+}
+
+void ModeLedController::writeBtLed(bool on) {
+  btLedOn_ = on;
+  const int level = on
+                        ? (board_config::BT_STATUS_LED_ACTIVE_HIGH ? HIGH : LOW)
+                        : (board_config::BT_STATUS_LED_ACTIVE_HIGH ? LOW : HIGH);
+  digitalWrite(board_config::BT_STATUS_LED_PIN, level);
 }

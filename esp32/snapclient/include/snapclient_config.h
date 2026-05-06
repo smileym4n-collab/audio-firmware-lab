@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.11.0
+  Version: 0.12.1
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char FIRMWARE_VERSION[] = "0.11.0";
+static constexpr char FIRMWARE_VERSION[] = "0.12.1";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -78,7 +78,7 @@ static constexpr uint32_t MODE_SWITCH_DEBOUNCE_MS = 40;
 static constexpr uint32_t MODE_SWITCH_RESTART_DELAY_MS = 100;
 static constexpr uint32_t MODE_SWITCH_MAGIC = 0x534D4F44;  // "SMOD"
 
-// ---------- Mode LED behavior ----------
+// ---------- Status LED behavior ----------
 // Snapclient mode uses a steady LED.
 // Bluetooth mode uses a simple repeating blink to show the alternate mode clearly.
 static constexpr uint32_t MODE_LED_BLUETOOTH_BLINK_INTERVAL_MS = 250;

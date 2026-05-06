@@ -15,12 +15,6 @@ bool BluetoothMode::begin() {
   WiFi.mode(WIFI_OFF);
   delay(100);
 
-  activeSampleRate_ = app_config::BLUETOOTH_DEFAULT_SAMPLE_RATE;
-  if (!audioOutput_.begin(activeSampleRate_)) {
-    Serial.println("[i2s] begin failed");
-    return false;
-  }
-
   instance_ = this;
 
   a2dpSink_.set_stream_reader(handleAudioData, false);
@@ -32,6 +26,12 @@ bool BluetoothMode::begin() {
                 app_config::BLUETOOTH_DEVICE_NAME);
   Serial.println("[bluetooth] waiting for a source device...");
   a2dpSink_.start(app_config::BLUETOOTH_DEVICE_NAME);
+
+  activeSampleRate_ = app_config::BLUETOOTH_DEFAULT_SAMPLE_RATE;
+  if (!audioOutput_.begin(activeSampleRate_)) {
+    Serial.println("[i2s] begin failed");
+    return false;
+  }
 
   return true;
 }

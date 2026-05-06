@@ -4,6 +4,14 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.12.1] - 2026-05-06
+
+- Started the Bluetooth A2DP stack before opening I2S so Bluetooth mode can allocate its internal task before the audio DMA buffers.
+
+## [0.12.0] - 2026-05-06
+
+- Updated the board pinout for SENSE on GPIO34, the mode button on GPIO23, and dedicated active-high Wi-Fi and Bluetooth LEDs on GPIO32/GPIO33.
+
 ## [0.11.0] - 2026-05-06
 
 - Added configurable 4S battery monitoring for Snapclient mode using an ADC1 battery divider input.

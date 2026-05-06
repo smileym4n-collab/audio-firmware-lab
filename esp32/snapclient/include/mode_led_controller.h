@@ -9,9 +9,10 @@ class ModeLedController {
   void update();
 
  private:
-  void write(bool on);
+  void writeWifiLed(bool on);
+  void writeBtLed(bool on);
 
   app_config::OperatingMode activeMode_ = app_config::OperatingMode::Snapclient;
   uint32_t lastToggleMs_ = 0;
-  bool ledOn_ = false;
+  bool btLedOn_ = false;
 };

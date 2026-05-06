@@ -1,6 +1,6 @@
 # ESP32 Audio Client v9.30
 
-Version: **0.11.0**
+Version: **0.12.1**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and adds a Snapclient-mode local HTTP control API for companion apps such as SnapApp. Bluetooth mode remains simple connect-and-play and does not expose or use local channel routing.
 
@@ -31,9 +31,10 @@ Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapc
 | I2S LRCLK / WS | `GPIO25` | External DAC word select |
 | I2S DOUT | `GPIO13` | External DAC serial data input |
 | I2S MCLK | `GPIO0` | Optional only, used only when `I2S_MCLK_ENABLED = true` |
-| Mode button | `GPIO32` | Runtime momentary mode-toggle button, active low with internal pull-up |
-| Mode LED | `GPIO33` | Single mode-status LED, active high by default |
-| Battery sense | `GPIO34` | 4S battery divider ADC input, configurable in `board_config.h` |
+| SENSE | `GPIO34` | Battery divider ADC input, configurable in `board_config.h` |
+| Mode button | `GPIO23` | Runtime momentary mode-toggle button, active low with internal pull-up |
+| Wi-Fi LED | `GPIO32` | Snapclient/Wi-Fi status LED, active high |
+| BT LED | `GPIO33` | Bluetooth status LED, active high |
 
 ## MCLK configuration
 
@@ -101,7 +102,7 @@ Important detail:
 
 Recommended wiring for the mode button:
 
-- connect one side of the push button to `GPIO32`
+- connect one side of the push button to `GPIO23`
 - connect the other side to `GND`
 - the firmware enables the internal pull-up, so no external pull-up is required for the default arrangement
 
@@ -112,22 +113,23 @@ If you do not have the button connected yet, you can also switch modes from the 
 - send `t` to toggle to the opposite mode
 - send `?` to print the help line again
 
-## Mode LED behavior
+## Status LED behavior
 
-The mode LED behavior is intentionally simple:
+The status LED behavior is intentionally simple:
 
-- **Snapclient mode**: LED **solid ON**
-- **Bluetooth mode**: LED **blinks continuously**
+- **Snapclient mode**: Wi-Fi LED on `GPIO32` is **solid ON**
+- **Bluetooth mode**: BT LED on `GPIO33` **blinks continuously**
 
 The LED logic is implemented in [mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp).
 
 Recommended default LED wiring:
 
-- connect `GPIO33` through a resistor to the LED anode
+- connect `GPIO32` through a resistor to the Wi-Fi LED anode
+- connect `GPIO33` through a resistor to the BT LED anode
 - connect the LED cathode to `GND`
 - this matches the default active-high configuration
 
-If your LED is wired differently, change `MODE_STATUS_LED_ACTIVE_HIGH` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
+If either LED is wired differently, change `WIFI_STATUS_LED_ACTIVE_HIGH` or `BT_STATUS_LED_ACTIVE_HIGH` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
 
 ## SnapApp control API
 
@@ -152,10 +154,10 @@ The Snapclient board can report a 4S lithium pack voltage and estimated percenta
 
 Default hardware assumption:
 
-- battery positive -> `270k` resistor -> `GPIO34` ADC input -> `47k` resistor -> `GND`
+- battery positive -> `270k` resistor -> ADC-capable sense input -> `47k` resistor -> `GND`
 - a full 4S Li-ion pack at `16.8V` produces about `2.49V` at the ADC pin
 
-Change `BATTERY_SENSE_PIN` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h) if your board routes the divider to another ADC1-capable GPIO.
+The current board pinout sets `BATTERY_SENSE_PIN` to `GPIO34` for the board SENSE input. `GPIO34` is ADC1-capable and input-only, which suits the battery divider output while Wi-Fi is active.
 
 ## Configuration files
 
@@ -166,7 +168,7 @@ Change `BATTERY_SENSE_PIN` in [board_config.h](/C:/audio-firmware-lab/esp32/snap
 - [src/main.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/main.cpp) - boot log, PSRAM setup, runtime mode setup, and LED initialization
 - [src/boot_mode_selector.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/boot_mode_selector.cpp) - boot-time mode resolution for cold boot vs requested software restart
 - [src/mode_switch_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_switch_controller.cpp) - runtime button press detection, debounce, mode toggle request, and reboot
-- [src/mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp) - mode LED behavior
+- [src/mode_led_controller.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/mode_led_controller.cpp) - Wi-Fi and Bluetooth status LED behavior
 - [src/snapclient_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/snapclient_mode.cpp) - Wi-Fi Snapclient mode
 - [src/bluetooth_mode.cpp](/C:/audio-firmware-lab/esp32/snapclient/src/bluetooth_mode.cpp) - Bluetooth A2DP sink mode
 - [API.md](/C:/audio-firmware-lab/esp32/snapclient/API.md) - compact companion-app API reference
