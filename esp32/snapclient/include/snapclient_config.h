@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.10.1
+  Version: 0.11.0
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char FIRMWARE_VERSION[] = "0.10.1";
+static constexpr char FIRMWARE_VERSION[] = "0.11.0";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -46,6 +46,18 @@ static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;
 // Used by companion apps for ESP32-specific controls that Snapserver does not
 // expose, such as local channel routing.
 static constexpr uint16_t CONTROL_API_PORT = 8080;
+
+// ---------- Battery monitor ----------
+// Hardware divider: battery positive -> R_TOP -> ADC pin -> R_BOTTOM -> GND.
+// A full 4S Li-ion pack at 16.8 V reads about 2.49 V with 270k/47k.
+static constexpr float BATTERY_R_TOP_OHMS = 270000.0f;
+static constexpr float BATTERY_R_BOTTOM_OHMS = 47000.0f;
+static constexpr uint8_t BATTERY_ADC_SAMPLES = 16;
+static constexpr uint32_t BATTERY_POLL_INTERVAL_MS = 5000;
+static constexpr float BATTERY_ADC_REF_VOLTAGE = 3.3f;
+static constexpr float BATTERY_ADC_FULL_SCALE_COUNTS = 4095.0f;
+static constexpr float BATTERY_PERCENT_SMOOTH_ALPHA = 0.20f;
+static constexpr uint32_t BATTERY_ADC_DEFAULT_VREF_MV = 1100;
 
 // ---------- Snapserver ----------
 inline IPAddress snapServerIp() { return IPAddress(192, 168, 5, 106); }

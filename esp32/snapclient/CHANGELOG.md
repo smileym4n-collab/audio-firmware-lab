@@ -4,6 +4,12 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.11.0] - 2026-05-06
+
+- Added configurable 4S battery monitoring for Snapclient mode using an ADC1 battery divider input.
+- Added pack battery voltage and estimated percentage to the Snapclient control API status response.
+- Added `API.md` as a compact companion-app API reference.
+
 ## [0.10.1] - 2026-05-06
 
 - Added `firmwareVersion` to the Snapclient control API status response and aligned the Snapserver-reported Snapclient version with the firmware version.

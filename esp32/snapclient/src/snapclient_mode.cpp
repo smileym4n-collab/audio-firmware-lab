@@ -88,6 +88,8 @@ bool SnapclientMode::begin() {
   audioOutput_.setChannelMode(loadChannelModePreference());
   Serial.printf("[channel] snapclient channel mode=%s\n",
                 app_config::channelModeName(audioOutput_.channelMode()));
+  batteryMonitor_.begin();
+  batteryMonitor_.update(true);
   beginControlApi();
 
   snapClient_.setSnapProcessor(*snapProcessor_);
@@ -164,6 +166,7 @@ bool SnapclientMode::begin() {
 }
 
 void SnapclientMode::loop() {
+  batteryMonitor_.update();
   handleControlApi();
 
   const uint32_t nowMs = millis();
@@ -246,6 +249,9 @@ void SnapclientMode::handleControlApi() {
 }
 
 void SnapclientMode::sendControlStatus() {
+  batteryMonitor_.update();
+  const BatteryStatus battery = batteryMonitor_.status();
+
   String response = "{";
   response += "\"project\":\"";
   response += app_config::PROJECT_TITLE;
@@ -256,7 +262,17 @@ void SnapclientMode::sendControlStatus() {
   response += "\",\"runtime_mode\":\"snapclient\"";
   response += ",\"channel_mode\":\"";
   response += app_config::channelModeName(audioOutput_.channelMode());
-  response += "\",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"]}";
+  response += "\",\"battery\":{";
+  response += "\"available\":";
+  response += battery.available ? "true" : "false";
+  if (battery.available) {
+    response += ",\"voltage\":";
+    response += String(battery.voltage, 2);
+    response += ",\"percent\":";
+    response += battery.percent;
+  }
+  response += "}";
+  response += ",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"]}";
   response += "}";
 
   controlServer_.send(200, "application/json", response);
