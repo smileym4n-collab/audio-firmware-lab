@@ -31,4 +31,9 @@ static constexpr int BOOT_MODE_BUTTON_ACTIVE_LEVEL = LOW;
 static constexpr int MODE_STATUS_LED_PIN = 33;
 static constexpr bool MODE_STATUS_LED_ACTIVE_HIGH = true;
 
+// 4S battery monitor input. Use ADC1-capable pins while Wi-Fi is active.
+// Good choices on classic ESP32 are GPIO34, GPIO35, GPIO36, and GPIO39.
+static constexpr bool BATTERY_SENSE_ENABLED = true;
+static constexpr int BATTERY_SENSE_PIN = 34;  // Battery divider output to ADC1 input
+
 }  // namespace board_config

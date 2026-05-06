@@ -23,11 +23,33 @@ Example response:
 ```json
 {
   "project": "ESP32 Audio Client v9.30",
-  "version": "0.10.0",
+  "version": "0.11.0",
+  "firmwareVersion": "0.11.0",
   "runtime_mode": "snapclient",
   "channel_mode": "stereo",
+  "battery": {
+    "available": true,
+    "voltage": 16.42,
+    "percent": 95
+  },
   "capabilities": {
     "channel_modes": ["stereo", "left", "right"]
+  }
+}
+```
+
+Battery fields:
+
+- `available`: `true` when battery sensing is enabled and a reading has been taken
+- `voltage`: reconstructed 4S pack voltage, not the ADC divider voltage
+- `percent`: estimated 4S state of charge from the firmware lookup curve
+
+If battery sensing is disabled or the configured pin is not ADC1-capable, the response includes:
+
+```json
+{
+  "battery": {
+    "available": false
   }
 }
 ```

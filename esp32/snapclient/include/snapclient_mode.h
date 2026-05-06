@@ -10,6 +10,7 @@
 
 #include "audio_probe_stream.h"
 #include "audio_output_controller.h"
+#include "battery_monitor.h"
 #include "project_snap_output.h"
 #include "snapcast_pcm_decoder.h"
 #include "snapclient_time_sync.h"
@@ -37,6 +38,7 @@ class SnapclientMode : public RuntimeMode {
 
   WiFiClient wifiClient_;
   AudioOutputController audioOutput_;
+  BatteryMonitor batteryMonitor_;
   WebServer controlServer_;
   AudioProbeStream pcmProbe_;
   SnapcastPcmDecoder codec_;
