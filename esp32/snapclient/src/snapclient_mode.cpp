@@ -1,5 +1,6 @@
 #include "snapclient_mode.h"
 
+#include "bluetooth_name_store.h"
 #include "channel_mode_store.h"
 #include "project_snap_processor_rtos.h"
 #include "snapclient_config.h"
@@ -195,6 +196,40 @@ void SnapclientMode::loop() {
   delay(app_config::MAIN_LOOP_DELAY_MS);
 }
 
+bool extractJsonStringValue(const String &body, const char *key, String &value) {
+  String quotedKey = "\"";
+  quotedKey += key;
+  quotedKey += "\"";
+
+  const int keyIndex = body.indexOf(quotedKey);
+  if (keyIndex < 0) {
+    return false;
+  }
+
+  const int colonIndex = body.indexOf(':', keyIndex);
+  if (colonIndex < 0) {
+    return false;
+  }
+
+  const int valueStart = body.indexOf('"', colonIndex + 1);
+  if (valueStart < 0) {
+    return false;
+  }
+
+  const int valueEnd = body.indexOf('"', valueStart + 1);
+  if (valueEnd < 0) {
+    return false;
+  }
+
+  value = body.substring(valueStart + 1, valueEnd);
+  value.trim();
+  return true;
+}
+
+void SnapclientMode::prepareForRestart() {
+  audioOutput_.muteForRestart(app_config::AUDIO_MODE_CHANGE_MUTE_RAMP_MS);
+}
+
 void SnapclientMode::snapClientTaskEntry(void *context) {
   auto *self = static_cast<SnapclientMode *>(context);
   if (self != nullptr) {
@@ -234,6 +269,7 @@ bool SnapclientMode::connectWifiWithTimeout() {
 void SnapclientMode::beginControlApi() {
   controlServer_.on("/api/status", HTTP_GET, [this]() { sendControlStatus(); });
   controlServer_.on("/api/channel-mode", HTTP_POST, [this]() { handleSetChannelMode(); });
+  controlServer_.on("/api/bluetooth-name", HTTP_POST, [this]() { handleSetBluetoothName(); });
   controlServer_.onNotFound([this]() {
     controlServer_.send(404, "application/json", "{\"error\":\"not_found\"}");
   });
@@ -262,6 +298,8 @@ void SnapclientMode::sendControlStatus() {
   response += "\",\"runtime_mode\":\"snapclient\"";
   response += ",\"channel_mode\":\"";
   response += app_config::channelModeName(audioOutput_.channelMode());
+  response += "\",\"bluetooth_name\":\"";
+  response += loadBluetoothNamePreference();
   response += "\",\"battery\":{";
   response += "\"available\":";
   response += battery.available ? "true" : "false";
@@ -272,7 +310,7 @@ void SnapclientMode::sendControlStatus() {
     response += battery.percent;
   }
   response += "}";
-  response += ",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"]}";
+  response += ",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"],\"bluetooth_name\":true}";
   response += "}";
 
   controlServer_.send(200, "application/json", response);
@@ -292,5 +330,23 @@ void SnapclientMode::handleSetChannelMode() {
 
   audioOutput_.setChannelMode(requestedMode);
   saveChannelModePreference(requestedMode);
+  sendControlStatus();
+}
+
+void SnapclientMode::handleSetBluetoothName() {
+  const String body = controlServer_.arg("plain");
+  String requestedName;
+
+  if (!extractJsonStringValue(body, "bluetooth_name", requestedName) ||
+      !isValidBluetoothName(requestedName)) {
+    controlServer_.send(
+        400,
+        "application/json",
+        "{\"error\":\"invalid_bluetooth_name\",\"max_length\":31}");
+    return;
+  }
+
+  saveBluetoothNamePreference(requestedName);
+  Serial.printf("[bluetooth] saved device name=%s\n", requestedName.c_str());
   sendControlStatus();
 }

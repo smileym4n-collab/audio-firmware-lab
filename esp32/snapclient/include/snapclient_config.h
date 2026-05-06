@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.12.1
+  Version: 0.13.0
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char FIRMWARE_VERSION[] = "0.12.1";
+static constexpr char FIRMWARE_VERSION[] = "0.13.0";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -67,6 +67,7 @@ static constexpr char SNAP_CLIENT_NAME[] = "esp32-wrover-snapclient-v6";
 
 // ---------- Bluetooth ----------
 static constexpr char BLUETOOTH_DEVICE_NAME[] = "CoolCube";
+static constexpr size_t BLUETOOTH_DEVICE_NAME_MAX_LENGTH = 31;
 static constexpr bool BLUETOOTH_AUTO_RECONNECT = false;
 static constexpr uint32_t BLUETOOTH_IDLE_DELAY_MS = 25;
 static constexpr uint32_t BLUETOOTH_DEFAULT_SAMPLE_RATE = 44100;
@@ -95,7 +96,13 @@ static constexpr uint8_t AUDIO_CHANNELS = 2;
 static constexpr uint8_t I2S_DMA_BUFFER_COUNT = 24;
 // Classic ESP32 I2S driver requires the DMA buffer size to stay within 8..1024.
 static constexpr uint16_t I2S_DMA_BUFFER_SIZE = 1024;
+// Bluetooth starts after the BT stack has allocated its task/heap, so keep its
+// I2S DMA footprint smaller than the Snapclient Wi-Fi path.
+static constexpr uint8_t BLUETOOTH_I2S_DMA_BUFFER_COUNT = 8;
+static constexpr uint16_t BLUETOOTH_I2S_DMA_BUFFER_SIZE = 512;
 static constexpr bool I2S_USE_AUDIO_PLL = true;
+static constexpr uint32_t AUDIO_UNMUTE_RAMP_MS = 35;
+static constexpr uint32_t AUDIO_MODE_CHANGE_MUTE_RAMP_MS = 35;
 
 // ---------- Buffering / stability ----------
 // Keep enough PCM buffering for Wi-Fi jitter without waiting so long that

@@ -1,6 +1,6 @@
 /*
   Project: ESP32 audio client v9.30 (SnapApp channel control API)
-  Version: 0.12.1
+  Version: 0.13.0
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -89,6 +89,7 @@ void setup() {
   Serial.println("[serial] commands: 'b' -> Bluetooth, 's' -> Snapclient, 't' -> toggle");
   gModeLed.setMode(selectedMode);
   gModeSwitch.begin(selectedMode);
+  gModeSwitch.setRuntimeMode(gActiveMode);
 
   if (!gActiveMode->begin()) {
     Serial.println("[boot] mode start failed, restarting...");

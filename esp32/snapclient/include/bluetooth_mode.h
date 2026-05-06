@@ -2,6 +2,8 @@
 
 #include "BluetoothA2DPSink.h"
 
+#include <Arduino.h>
+
 #include "audio_output_controller.h"
 #include "runtime_mode.h"
 
@@ -12,6 +14,7 @@ class BluetoothMode : public RuntimeMode {
   bool begin() override;
   void loop() override;
   const char *name() const override { return "Bluetooth"; }
+  void prepareForRestart() override;
 
  private:
   static void handleAudioData(const uint8_t *data, uint32_t length);
@@ -25,5 +28,6 @@ class BluetoothMode : public RuntimeMode {
 
   AudioOutputController audioOutput_;
   BluetoothA2DPSink a2dpSink_;
+  String bluetoothDeviceName_;
   uint16_t activeSampleRate_ = 44100;
 };

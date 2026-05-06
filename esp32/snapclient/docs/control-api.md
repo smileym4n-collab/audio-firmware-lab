@@ -1,6 +1,6 @@
 # Local control API
 
-Snapclient mode exposes a small HTTP API for companion apps. This API is for ESP32-specific controls that Snapserver does not expose, such as local channel routing.
+Snapclient mode exposes a small HTTP API for companion apps. This API is for ESP32-specific controls that Snapserver does not expose, such as local channel routing and the saved Bluetooth device name.
 
 Bluetooth mode does not expose this API and ignores the saved channel-routing preference.
 
@@ -23,17 +23,19 @@ Example response:
 ```json
 {
   "project": "ESP32 Audio Client v9.30",
-  "version": "0.11.0",
-  "firmwareVersion": "0.11.0",
+  "version": "0.13.0",
+  "firmwareVersion": "0.13.0",
   "runtime_mode": "snapclient",
   "channel_mode": "stereo",
+  "bluetooth_name": "CoolCube",
   "battery": {
     "available": true,
     "voltage": 16.42,
     "percent": 95
   },
   "capabilities": {
-    "channel_modes": ["stereo", "left", "right"]
+    "channel_modes": ["stereo", "left", "right"],
+    "bluetooth_name": true
   }
 }
 ```
@@ -76,5 +78,28 @@ Allowed values:
 - `right`: both DAC channels play the right input channel
 
 The selected mode is saved in ESP32 preferences and restored on later Snapclient boots.
+
+Successful responses return the same shape as `GET /api/status`.
+
+## Set Bluetooth Name
+
+```text
+POST /api/bluetooth-name
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "bluetooth_name": "CoolCube Kitchen"
+}
+```
+
+The selected name is saved in ESP32 preferences and used the next time the device boots into Bluetooth mode. It does not change Snapclient channel routing, and Bluetooth mode still does not expose this API.
+
+Allowed value:
+
+- `bluetooth_name`: 1 to 31 printable ASCII characters, excluding `"` and `\`
 
 Successful responses return the same shape as `GET /api/status`.

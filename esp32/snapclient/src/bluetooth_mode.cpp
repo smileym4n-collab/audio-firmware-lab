@@ -2,6 +2,7 @@
 
 #include <WiFi.h>
 
+#include "bluetooth_name_store.h"
 #include "snapclient_config.h"
 
 BluetoothMode *BluetoothMode::instance_ = nullptr;
@@ -22,13 +23,15 @@ bool BluetoothMode::begin() {
   a2dpSink_.set_on_connection_state_changed(handleConnectionState, this);
   a2dpSink_.set_auto_reconnect(app_config::BLUETOOTH_AUTO_RECONNECT);
 
-  Serial.printf("[bluetooth] device name=%s\n",
-                app_config::BLUETOOTH_DEVICE_NAME);
+  bluetoothDeviceName_ = loadBluetoothNamePreference();
+  Serial.printf("[bluetooth] device name=%s\n", bluetoothDeviceName_.c_str());
   Serial.println("[bluetooth] waiting for a source device...");
-  a2dpSink_.start(app_config::BLUETOOTH_DEVICE_NAME);
+  a2dpSink_.start(bluetoothDeviceName_.c_str());
 
   activeSampleRate_ = app_config::BLUETOOTH_DEFAULT_SAMPLE_RATE;
-  if (!audioOutput_.begin(activeSampleRate_)) {
+  if (!audioOutput_.begin(activeSampleRate_,
+                          app_config::BLUETOOTH_I2S_DMA_BUFFER_COUNT,
+                          app_config::BLUETOOTH_I2S_DMA_BUFFER_SIZE)) {
     Serial.println("[i2s] begin failed");
     return false;
   }
@@ -38,6 +41,10 @@ bool BluetoothMode::begin() {
 
 void BluetoothMode::loop() {
   delay(app_config::BLUETOOTH_IDLE_DELAY_MS);
+}
+
+void BluetoothMode::prepareForRestart() {
+  audioOutput_.muteForRestart(app_config::AUDIO_MODE_CHANGE_MUTE_RAMP_MS);
 }
 
 void BluetoothMode::handleAudioData(const uint8_t *data, uint32_t length) {

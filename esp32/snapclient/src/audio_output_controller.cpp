@@ -1,6 +1,7 @@
 #include "audio_output_controller.h"
 
 #include <stdint.h>
+#include <string.h>
 
 #include "board_config.h"
 #include "snapclient_config.h"
@@ -8,6 +9,9 @@
 using namespace audio_tools;
 
 namespace {
+
+constexpr uint16_t kFullScaleGainQ15 = 32767;
+constexpr size_t kGainBufferBytes = 256;
 
 int configuredMclkPin() {
   return board_config::I2S_MCLK_ENABLED ? board_config::I2S_MCLK_PIN : -1;
@@ -54,10 +58,26 @@ uint16_t maxAbsPcm16(const uint8_t *data, size_t length) {
 }  // namespace
 
 bool AudioOutputController::begin(uint32_t sampleRate) {
+  return begin(sampleRate,
+               app_config::I2S_DMA_BUFFER_COUNT,
+               app_config::I2S_DMA_BUFFER_SIZE);
+}
+
+bool AudioOutputController::begin(uint32_t sampleRate,
+                                  uint8_t dmaBufferCount,
+                                  uint16_t dmaBufferSize) {
+  gainCurrentQ15_ = 0;
+  gainStartQ15_ = 0;
+  gainTargetQ15_ = 0;
+  gainRampStartMs_ = millis();
+  gainRampDurationMs_ = 0;
+
   fillConfig(config_,
              sampleRate,
              app_config::AUDIO_CHANNELS,
-             app_config::AUDIO_BITS_PER_SAMPLE);
+             app_config::AUDIO_BITS_PER_SAMPLE,
+             dmaBufferCount,
+             dmaBufferSize);
 
   Serial.printf("[i2s] begin format=%lu Hz, %u-bit, %u ch\n",
                 static_cast<unsigned long>(sampleRate),
@@ -73,11 +93,15 @@ bool AudioOutputController::begin(uint32_t sampleRate) {
     Serial.println("[i2s] mclk=disabled");
   }
   Serial.printf("[i2s] dma=%u x %u bytes, apll=%s\n",
-                app_config::I2S_DMA_BUFFER_COUNT,
-                app_config::I2S_DMA_BUFFER_SIZE,
+                dmaBufferCount,
+                dmaBufferSize,
                 app_config::I2S_USE_AUDIO_PLL ? "on" : "off");
 
-  return i2sOut_.begin(config_);
+  const bool started = i2sOut_.begin(config_);
+  if (started) {
+    rampToFullScale(app_config::AUDIO_UNMUTE_RAMP_MS);
+  }
+  return started;
 }
 
 void AudioOutputController::setChannelMode(app_config::ChannelMode mode) {
@@ -152,7 +176,11 @@ size_t AudioOutputController::writeRaw(const uint8_t *data, size_t length) {
   static uint32_t windowBytes = 0;
   static uint16_t windowPeak = 0;
 
-  const size_t written = i2sOut_.write(data, length);
+  const uint16_t gainQ15 = currentGainQ15();
+  const size_t written =
+      (config_.bits_per_sample == 16 && gainQ15 < kFullScaleGainQ15)
+          ? writeGainAdjusted(data, length, gainQ15)
+          : i2sOut_.write(data, length);
   windowBytes += static_cast<uint32_t>(written);
 
   if (written > 0 && config_.bits_per_sample == 16) {
@@ -175,10 +203,104 @@ size_t AudioOutputController::writeRaw(const uint8_t *data, size_t length) {
   return written;
 }
 
+void AudioOutputController::rampToMute(uint32_t durationMs) {
+  beginGainRamp(0, durationMs);
+}
+
+void AudioOutputController::rampToFullScale(uint32_t durationMs) {
+  beginGainRamp(kFullScaleGainQ15, durationMs);
+}
+
+void AudioOutputController::muteForRestart(uint32_t durationMs) {
+  if (!i2sOut_.isActive()) {
+    return;
+  }
+
+  rampToMute(durationMs);
+
+  uint8_t silence[kGainBufferBytes] = {};
+  const uint32_t startMs = millis();
+  do {
+    writeRaw(silence, sizeof(silence));
+    delay(1);
+  } while ((millis() - startMs) < durationMs);
+
+  i2sOut_.flush();
+}
+
+void AudioOutputController::beginGainRamp(uint16_t targetGainQ15,
+                                          uint32_t durationMs) {
+  gainStartQ15_ = currentGainQ15();
+  gainCurrentQ15_ = gainStartQ15_;
+  gainTargetQ15_ = targetGainQ15;
+  gainRampStartMs_ = millis();
+  gainRampDurationMs_ = durationMs;
+
+  if (durationMs == 0) {
+    gainCurrentQ15_ = gainTargetQ15_;
+  }
+}
+
+uint16_t AudioOutputController::currentGainQ15() {
+  if (gainCurrentQ15_ == gainTargetQ15_ || gainRampDurationMs_ == 0) {
+    return gainCurrentQ15_;
+  }
+
+  const uint32_t elapsedMs = millis() - gainRampStartMs_;
+  if (elapsedMs >= gainRampDurationMs_) {
+    gainCurrentQ15_ = gainTargetQ15_;
+    return gainCurrentQ15_;
+  }
+
+  const int32_t gainDelta =
+      static_cast<int32_t>(gainTargetQ15_) - static_cast<int32_t>(gainStartQ15_);
+  gainCurrentQ15_ =
+      static_cast<uint16_t>(static_cast<int32_t>(gainStartQ15_) +
+                            ((gainDelta * static_cast<int32_t>(elapsedMs)) /
+                             static_cast<int32_t>(gainRampDurationMs_)));
+  return gainCurrentQ15_;
+}
+
+size_t AudioOutputController::writeGainAdjusted(const uint8_t *data,
+                                                size_t length,
+                                                uint16_t gainQ15) {
+  uint8_t buffer[kGainBufferBytes];
+  size_t totalWritten = 0;
+  size_t offset = 0;
+
+  while (offset < length) {
+    const size_t bytesThisPass = min(sizeof(buffer), length - offset);
+    const size_t sampleBytes = bytesThisPass - (bytesThisPass % sizeof(int16_t));
+
+    for (size_t i = 0; i < sampleBytes; i += sizeof(int16_t)) {
+      int16_t sample;
+      memcpy(&sample, data + offset + i, sizeof(sample));
+      const int32_t scaled =
+          (static_cast<int32_t>(sample) * static_cast<int32_t>(gainQ15)) /
+          static_cast<int32_t>(kFullScaleGainQ15);
+      const int16_t outputSample = static_cast<int16_t>(scaled);
+      memcpy(buffer + i, &outputSample, sizeof(outputSample));
+    }
+
+    if (sampleBytes < bytesThisPass) {
+      memcpy(buffer + sampleBytes,
+             data + offset + sampleBytes,
+             bytesThisPass - sampleBytes);
+    }
+
+    totalWritten += i2sOut_.write(buffer, bytesThisPass);
+    offset += bytesThisPass;
+  }
+
+  return totalWritten;
+}
+
 void AudioOutputController::fillConfig(I2SConfig &cfg,
                                        uint32_t sampleRate,
                                        uint8_t channels,
-                                       uint8_t bitsPerSample) {
+                                       uint8_t bitsPerSample,
+                                       uint8_t dmaBufferCount,
+                                       uint16_t dmaBufferSize) {
   cfg = i2sOut_.defaultConfig(TX_MODE);
   cfg.sample_rate = sampleRate;
   cfg.channels = channels;
@@ -187,8 +309,8 @@ void AudioOutputController::fillConfig(I2SConfig &cfg,
   cfg.pin_ws = board_config::I2S_LRCLK_PIN;
   cfg.pin_data = board_config::I2S_DOUT_PIN;
   cfg.pin_mck = configuredMclkPin();
-  cfg.buffer_count = app_config::I2S_DMA_BUFFER_COUNT;
-  cfg.buffer_size = sanitizedDmaBufferSize(app_config::I2S_DMA_BUFFER_SIZE);
+  cfg.buffer_count = dmaBufferCount;
+  cfg.buffer_size = sanitizedDmaBufferSize(dmaBufferSize);
   cfg.use_apll = app_config::I2S_USE_AUDIO_PLL;
   cfg.auto_clear = true;
 }

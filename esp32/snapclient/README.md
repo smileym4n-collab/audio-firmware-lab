@@ -1,6 +1,6 @@
 # ESP32 Audio Client v9.30
 
-Version: **0.12.1**
+Version: **0.13.0**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and adds a Snapclient-mode local HTTP control API for companion apps such as SnapApp. Bluetooth mode remains simple connect-and-play and does not expose or use local channel routing.
 
@@ -137,6 +137,7 @@ Snapclient mode exposes a small local HTTP API on port `8080` for controls that 
 
 - `GET /api/status` returns firmware identity, `firmwareVersion`, runtime mode, current channel mode, battery status, and capabilities.
 - `POST /api/channel-mode` accepts `{"channel_mode":"stereo"}`, `{"channel_mode":"left"}`, or `{"channel_mode":"right"}`.
+- `POST /api/bluetooth-name` accepts `{"bluetooth_name":"CoolCube Kitchen"}` and saves the name for later Bluetooth-mode boots.
 
 Channel routing applies only in Snapclient mode:
 
@@ -145,6 +146,8 @@ Channel routing applies only in Snapclient mode:
 - `right`: both DAC channels play the right input channel
 
 The selected channel mode is saved in ESP32 preferences and restored on later Snapclient boots. Bluetooth mode ignores this setting and remains a simple single-speaker receiver.
+
+The Bluetooth name setting is also saved in ESP32 preferences, but it is only read when Bluetooth mode starts.
 
 See [API.md](/C:/audio-firmware-lab/esp32/snapclient/API.md) for the companion-app API reference and [control-api.md](/C:/audio-firmware-lab/esp32/snapclient/docs/control-api.md) for request and response examples.
 

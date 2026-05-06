@@ -22,6 +22,10 @@ void ModeSwitchController::begin(app_config::OperatingMode currentMode) {
   printSerialHelp();
 }
 
+void ModeSwitchController::setRuntimeMode(RuntimeMode *runtimeMode) {
+  runtimeMode_ = runtimeMode;
+}
+
 void ModeSwitchController::update() {
   processSerialInput();
 
@@ -131,6 +135,12 @@ void ModeSwitchController::requestModeChange(app_config::OperatingMode nextMode,
                   source != nullptr ? source : "mode",
                   app_config::operatingModeName(nextMode));
   }
+
+  if (runtimeMode_ != nullptr) {
+    Serial.println("[audio] fading to mute before restart");
+    runtimeMode_->prepareForRestart();
+  }
+
   delay(app_config::MODE_SWITCH_RESTART_DELAY_MS);
   ESP.restart();
 }

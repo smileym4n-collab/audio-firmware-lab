@@ -4,6 +4,18 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.13.0] - 2026-05-06
+
+- Added a Snapclient-mode control API endpoint for saving the Bluetooth device name used on later Bluetooth boots.
+
+## [0.12.3] - 2026-05-06
+
+- Added short software audio fade-in on I2S startup and fade-to-mute before mode-switch restarts to reduce clicks and pops.
+
+## [0.12.2] - 2026-05-06
+
+- Reduced the Bluetooth-mode I2S DMA buffer footprint so I2S can start after the Bluetooth stack has allocated its internal task.
+
 ## [0.12.1] - 2026-05-06
 
 - Started the Bluetooth A2DP stack before opening I2S so Bluetooth mode can allocate its internal task before the audio DMA buffers.

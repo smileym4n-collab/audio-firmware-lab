@@ -26,6 +26,7 @@ class SnapclientMode : public RuntimeMode {
   bool begin() override;
   void loop() override;
   const char *name() const override { return "Snapclient"; }
+  void prepareForRestart() override;
 
  private:
   bool connectWifiWithTimeout();
@@ -33,6 +34,7 @@ class SnapclientMode : public RuntimeMode {
   void handleControlApi();
   void sendControlStatus();
   void handleSetChannelMode();
+  void handleSetBluetoothName();
   static void snapClientTaskEntry(void *context);
   void snapClientTaskLoop();
 
