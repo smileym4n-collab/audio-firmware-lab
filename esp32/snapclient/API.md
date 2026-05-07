@@ -17,8 +17,13 @@ Example response:
 ```json
 {
   "project": "ESP32 Audio Client v9.30",
-  "version": "0.13.0",
-  "firmwareVersion": "0.13.0",
+  "version": "0.14.0",
+  "firmwareVersion": "0.14.0",
+  "board": "ESP32-WROVER-IE-N16R8",
+  "flash_size_mb": 16,
+  "ota_partition_size": 6553600,
+  "ota_supported": true,
+  "update_in_progress": false,
   "runtime_mode": "snapclient",
   "channel_mode": "stereo",
   "bluetooth_name": "CoolCube",
@@ -29,7 +34,8 @@ Example response:
   },
   "capabilities": {
     "channel_modes": ["stereo", "left", "right"],
-    "bluetooth_name": true
+    "bluetooth_name": true,
+    "firmware_update": true
   }
 }
 ```
@@ -41,6 +47,11 @@ Fields:
 | `project` | string | Human-readable firmware/project name |
 | `version` | string | Legacy firmware version field, same value as `firmwareVersion` |
 | `firmwareVersion` | string | Firmware version to display in SnapApp |
+| `board` | string | Target board/module name |
+| `flash_size_mb` | number | Detected flash chip size in MB |
+| `ota_partition_size` | number | Inactive OTA app partition size in bytes, or `0` if unavailable |
+| `ota_supported` | boolean | `true` when `POST /api/firmware` can accept app-image uploads |
+| `update_in_progress` | boolean | `true` while a firmware upload is active |
 | `runtime_mode` | string | Current mode; `/api/status` is available in Snapclient mode |
 | `channel_mode` | string | Current local output routing: `stereo`, `left`, or `right` |
 | `bluetooth_name` | string | Saved Bluetooth device name used on later Bluetooth-mode boots |
@@ -49,6 +60,7 @@ Fields:
 | `battery.percent` | number | Estimated 4S battery percentage, `0..100` |
 | `capabilities.channel_modes` | string array | Channel modes accepted by `POST /api/channel-mode` |
 | `capabilities.bluetooth_name` | boolean | `true` when `POST /api/bluetooth-name` is available |
+| `capabilities.firmware_update` | boolean | `true` when `POST /api/firmware` is available |
 
 When battery sensing is unavailable:
 
@@ -130,3 +142,43 @@ Invalid requests return:
   "max_length": 31
 }
 ```
+
+## POST /api/firmware
+
+Uploads a prebuilt PlatformIO firmware `.bin` app image to the inactive OTA partition. This endpoint is only available while the device is running in Snapclient mode on Wi-Fi.
+
+Request:
+
+```http
+POST /api/firmware
+Content-Type: application/octet-stream
+Content-Length: <firmware size in bytes>
+X-Firmware-Filename: firmware.bin
+```
+
+Request body:
+
+- raw firmware `.bin` app image
+- no multipart wrapper
+- no JSON envelope
+
+Successful response:
+
+```json
+{
+  "ok": true,
+  "message": "Firmware accepted. Rebooting."
+}
+```
+
+Failure response:
+
+```json
+{
+  "ok": false,
+  "error": "image_too_large",
+  "message": "Firmware image is larger than the OTA partition"
+}
+```
+
+After a successful upload the device reboots. Companion apps should poll `GET /api/status` until the device returns and reports its new `firmwareVersion`.

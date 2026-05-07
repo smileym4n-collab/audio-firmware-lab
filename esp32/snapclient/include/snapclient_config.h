@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.13.4
+  Version: 0.14.0
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char FIRMWARE_VERSION[] = "0.13.4";
+static constexpr char FIRMWARE_VERSION[] = "0.14.0";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -46,6 +46,9 @@ static constexpr uint32_t SNAP_WIFI_MONITOR_INTERVAL_MS = 1000;
 // Used by companion apps for ESP32-specific controls that Snapserver does not
 // expose, such as local channel routing.
 static constexpr uint16_t CONTROL_API_PORT = 8080;
+static constexpr bool OTA_FIRMWARE_UPDATE_ENABLED = true;
+static constexpr size_t OTA_PARTITION_HEADROOM_BYTES = 4096;
+static constexpr uint32_t OTA_REBOOT_DELAY_MS = 500;
 
 // ---------- Battery monitor ----------
 // Hardware divider: battery positive -> R_TOP -> ADC pin -> R_BOTTOM -> GND.

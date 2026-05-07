@@ -1,5 +1,7 @@
 #include "snapclient_mode.h"
 
+#include <Update.h>
+#include <esp_ota_ops.h>
 #include <esp_heap_caps.h>
 
 #include "bluetooth_name_store.h"
@@ -8,6 +10,17 @@
 #include "snapclient_config.h"
 
 namespace {
+
+constexpr uint8_t kEspImageHeaderMagic = 0xE9;
+
+size_t otaPartitionSize() {
+  const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
+  return partition != nullptr ? partition->size : 0;
+}
+
+bool otaFirmwareUpdateSupported() {
+  return app_config::OTA_FIRMWARE_UPDATE_ENABLED && otaPartitionSize() > 0;
+}
 
 bool extractChannelMode(const String &body, app_config::ChannelMode &mode) {
   app_config::ChannelMode rawMode = app_config::ChannelMode::Stereo;
@@ -167,6 +180,14 @@ bool SnapclientMode::begin() {
 void SnapclientMode::loop() {
   batteryMonitor_.update();
   handleControlApi();
+
+  if (otaRebootPending_ &&
+      static_cast<int32_t>(millis() - otaRestartAtMs_) >= 0) {
+    Serial.println("[ota] rebooting into accepted firmware");
+    prepareForRestart();
+    delay(app_config::OTA_REBOOT_DELAY_MS);
+    ESP.restart();
+  }
 
   const uint32_t nowMs = millis();
 
@@ -364,9 +385,22 @@ bool SnapclientMode::connectWifiWithTimeout() {
 }
 
 void SnapclientMode::beginControlApi() {
+  static const char *kCollectedHeaders[] = {
+      "Content-Type",
+      "X-Firmware-Filename",
+  };
+  controlServer_.collectHeaders(kCollectedHeaders,
+                                sizeof(kCollectedHeaders) /
+                                    sizeof(kCollectedHeaders[0]));
+
   controlServer_.on("/api/status", HTTP_GET, [this]() { sendControlStatus(); });
   controlServer_.on("/api/channel-mode", HTTP_POST, [this]() { handleSetChannelMode(); });
   controlServer_.on("/api/bluetooth-name", HTTP_POST, [this]() { handleSetBluetoothName(); });
+  controlServer_.on(
+      "/api/firmware",
+      HTTP_POST,
+      [this]() { handleFirmwareUploadComplete(); },
+      [this]() { handleFirmwareUploadRaw(); });
   controlServer_.onNotFound([this]() {
     controlServer_.send(404, "application/json", "{\"error\":\"not_found\"}");
   });
@@ -384,6 +418,9 @@ void SnapclientMode::handleControlApi() {
 void SnapclientMode::sendControlStatus() {
   batteryMonitor_.update();
   const BatteryStatus battery = batteryMonitor_.status();
+  const size_t partitionSize = otaPartitionSize();
+  const bool otaSupported =
+      app_config::OTA_FIRMWARE_UPDATE_ENABLED && partitionSize > 0;
 
   String response = "{";
   response += "\"project\":\"";
@@ -392,7 +429,17 @@ void SnapclientMode::sendControlStatus() {
   response += app_config::FIRMWARE_VERSION;
   response += "\",\"firmwareVersion\":\"";
   response += app_config::FIRMWARE_VERSION;
-  response += "\",\"runtime_mode\":\"snapclient\"";
+  response += "\",\"board\":\"";
+  response += app_config::TARGET_MODULE;
+  response += "\",\"flash_size_mb\":";
+  response += ESP.getFlashChipSize() / (1024 * 1024);
+  response += ",\"ota_partition_size\":";
+  response += partitionSize;
+  response += ",\"ota_supported\":";
+  response += otaSupported ? "true" : "false";
+  response += ",\"update_in_progress\":";
+  response += otaUpdateInProgress_ ? "true" : "false";
+  response += ",\"runtime_mode\":\"snapclient\"";
   response += ",\"channel_mode\":\"";
   response += app_config::channelModeName(audioOutput_.channelMode());
   response += "\",\"bluetooth_name\":\"";
@@ -407,7 +454,9 @@ void SnapclientMode::sendControlStatus() {
     response += battery.percent;
   }
   response += "}";
-  response += ",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"],\"bluetooth_name\":true}";
+  response += ",\"capabilities\":{\"channel_modes\":[\"stereo\",\"left\",\"right\"],\"bluetooth_name\":true,\"firmware_update\":";
+  response += otaSupported ? "true" : "false";
+  response += "}";
   response += "}";
 
   controlServer_.send(200, "application/json", response);
@@ -446,4 +495,196 @@ void SnapclientMode::handleSetBluetoothName() {
   saveBluetoothNamePreference(requestedName);
   Serial.printf("[bluetooth] saved device name=%s\n", requestedName.c_str());
   sendControlStatus();
+}
+
+void SnapclientMode::handleFirmwareUploadRaw() {
+  HTTPRaw &upload = controlServer_.raw();
+
+  switch (upload.status) {
+    case RAW_START: {
+      if (otaUpdateInProgress_) {
+        failFirmwareUpload(
+            409, "update_in_progress", "Firmware update already in progress");
+        return;
+      }
+
+      otaUpdateInProgress_ = true;
+      otaUpdateAccepted_ = false;
+      otaUpdateFailed_ = false;
+      otaExpectedSize_ = 0;
+      otaWritten_ = 0;
+      otaPartitionSize_ = 0;
+      otaResponseStatus_ = 202;
+      otaError_ = "";
+      otaMessage_ = "";
+
+      if (!otaFirmwareUpdateSupported()) {
+        failFirmwareUpload(
+            409, "ota_unavailable", "OTA firmware update is unavailable");
+        return;
+      }
+
+      const int contentLength = controlServer_.clientContentLength();
+      if (contentLength <= 0) {
+        failFirmwareUpload(
+            400, "invalid_content_length", "Content-Length is required");
+        return;
+      }
+
+      const String contentType = controlServer_.header("Content-Type");
+      if (!contentType.equalsIgnoreCase("application/octet-stream")) {
+        failFirmwareUpload(400,
+                           "unsupported_content_type",
+                           "Content-Type must be application/octet-stream");
+        return;
+      }
+
+      otaExpectedSize_ = static_cast<size_t>(contentLength);
+      otaPartitionSize_ = otaPartitionSize();
+      if (otaExpectedSize_ + app_config::OTA_PARTITION_HEADROOM_BYTES >
+          otaPartitionSize_) {
+        failFirmwareUpload(413,
+                           "image_too_large",
+                           "Firmware image is larger than the OTA partition");
+        return;
+      }
+
+      Update.clearError();
+      if (!Update.begin(otaExpectedSize_, U_FLASH)) {
+        failFirmwareUpload(500, "ota_begin_failed", Update.errorString());
+        return;
+      }
+
+      const String filename = controlServer_.header("X-Firmware-Filename");
+      Serial.printf(
+          "[ota] upload start size=%lu partition=%lu filename=%s\n",
+          static_cast<unsigned long>(otaExpectedSize_),
+          static_cast<unsigned long>(otaPartitionSize_),
+          filename.length() > 0 ? filename.c_str() : "-");
+      break;
+    }
+
+    case RAW_WRITE: {
+      if (!otaUpdateInProgress_ || otaUpdateFailed_) {
+        return;
+      }
+
+      if (upload.currentSize == 0) {
+        return;
+      }
+
+      if (otaWritten_ == 0 && upload.buf[0] != kEspImageHeaderMagic) {
+        failFirmwareUpload(400,
+                           "invalid_image",
+                           "Firmware image has an invalid ESP header");
+        return;
+      }
+
+      if (otaWritten_ + upload.currentSize > otaExpectedSize_) {
+        failFirmwareUpload(
+            400, "invalid_content_length", "Uploaded body exceeded Content-Length");
+        return;
+      }
+
+      const size_t written = Update.write(upload.buf, upload.currentSize);
+      if (written != upload.currentSize) {
+        failFirmwareUpload(500, "ota_write_failed", Update.errorString());
+        return;
+      }
+
+      otaWritten_ += written;
+      break;
+    }
+
+    case RAW_END: {
+      if (otaUpdateFailed_) {
+        return;
+      }
+
+      if (!otaUpdateInProgress_) {
+        failFirmwareUpload(500, "ota_state_error", "Firmware update was not active");
+        return;
+      }
+
+      if (otaWritten_ != otaExpectedSize_) {
+        failFirmwareUpload(400,
+                           "truncated_upload",
+                           "Uploaded body did not match Content-Length");
+        return;
+      }
+
+      if (!Update.end(false)) {
+        failFirmwareUpload(500, "ota_validation_failed", Update.errorString());
+        return;
+      }
+
+      otaUpdateInProgress_ = false;
+      otaUpdateAccepted_ = true;
+      otaUpdateFailed_ = false;
+      otaResponseStatus_ = 202;
+      otaMessage_ = "Firmware accepted. Rebooting.";
+      Serial.printf("[ota] upload accepted bytes=%lu\n",
+                    static_cast<unsigned long>(otaWritten_));
+      break;
+    }
+
+    case RAW_ABORTED:
+      failFirmwareUpload(400, "upload_aborted", "Firmware upload was aborted");
+      break;
+  }
+}
+
+void SnapclientMode::handleFirmwareUploadComplete() {
+  if (otaUpdateAccepted_) {
+    controlServer_.send(
+        otaResponseStatus_,
+        "application/json",
+        "{\"ok\":true,\"message\":\"Firmware accepted. Rebooting.\"}");
+    scheduleFirmwareRestart();
+    return;
+  }
+
+  if (!otaUpdateFailed_) {
+    failFirmwareUpload(500,
+                       "ota_incomplete",
+                       "Firmware upload did not complete cleanly");
+  }
+
+  String response = "{\"ok\":false,\"error\":\"";
+  response += otaError_;
+  response += "\",\"message\":\"";
+  response += otaMessage_;
+  response += "\"}";
+  controlServer_.send(otaResponseStatus_, "application/json", response);
+}
+
+void SnapclientMode::failFirmwareUpload(int statusCode,
+                                        const char *error,
+                                        const char *message) {
+  if (Update.isRunning()) {
+    Update.abort();
+  }
+
+  otaUpdateInProgress_ = false;
+  otaUpdateAccepted_ = false;
+  otaUpdateFailed_ = true;
+  otaResponseStatus_ = statusCode;
+  otaError_ = error != nullptr ? error : "ota_failed";
+  otaMessage_ = message != nullptr ? message : "Firmware update failed";
+
+  Serial.printf("[ota] failed status=%d error=%s message=%s written=%lu/%lu\n",
+                otaResponseStatus_,
+                otaError_.c_str(),
+                otaMessage_.c_str(),
+                static_cast<unsigned long>(otaWritten_),
+                static_cast<unsigned long>(otaExpectedSize_));
+}
+
+void SnapclientMode::scheduleFirmwareRestart() {
+  if (otaRebootPending_) {
+    return;
+  }
+
+  otaRebootPending_ = true;
+  otaRestartAtMs_ = millis() + app_config::OTA_REBOOT_DELAY_MS;
 }

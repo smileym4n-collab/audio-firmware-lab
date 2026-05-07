@@ -35,6 +35,12 @@ class SnapclientMode : public RuntimeMode {
   void sendControlStatus();
   void handleSetChannelMode();
   void handleSetBluetoothName();
+  void handleFirmwareUploadRaw();
+  void handleFirmwareUploadComplete();
+  void failFirmwareUpload(int statusCode,
+                          const char *error,
+                          const char *message);
+  void scheduleFirmwareRestart();
   void logDiagnosticSnapshot(const char *reason);
   bool startSnapClientTask();
   void stopSnapClientTask(uint32_t timeoutMs);
@@ -55,6 +61,17 @@ class SnapclientMode : public RuntimeMode {
   volatile bool snapTaskRunning_ = false;
   uint32_t lastWifiCheckMs_ = 0;
   uint32_t playbackIdleSinceMs_ = 0;
+  uint32_t otaRestartAtMs_ = 0;
+  size_t otaExpectedSize_ = 0;
+  size_t otaWritten_ = 0;
+  size_t otaPartitionSize_ = 0;
+  int otaResponseStatus_ = 500;
+  String otaError_;
+  String otaMessage_;
   bool playbackIdleLogged_ = false;
   bool restartPrepared_ = false;
+  bool otaUpdateInProgress_ = false;
+  bool otaUpdateAccepted_ = false;
+  bool otaUpdateFailed_ = false;
+  bool otaRebootPending_ = false;
 };

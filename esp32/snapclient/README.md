@@ -1,6 +1,6 @@
 # ESP32 Audio Client v9.30
 
-Version: **0.13.4**
+Version: **0.14.0**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and adds a Snapclient-mode local HTTP control API for companion apps such as SnapApp. Bluetooth mode remains simple connect-and-play and does not expose or use local channel routing.
 
@@ -10,6 +10,7 @@ Default behavior after this change:
 - **press the mode button while running to reboot into Bluetooth mode**
 - **MCLK is disabled by default**
 - **Snapclient mode exposes `Stereo`, `Left`, and `Right` channel routing**
+- **Snapclient mode exposes a local OTA firmware upload endpoint for prebuilt `.bin` app images**
 
 That default suits many common **PCM5102-style DAC modules**, which usually do not require a separate MCLK line.
 
@@ -138,6 +139,7 @@ Snapclient mode exposes a small local HTTP API on port `8080` for controls that 
 - `GET /api/status` returns firmware identity, `firmwareVersion`, runtime mode, current channel mode, battery status, and capabilities.
 - `POST /api/channel-mode` accepts `{"channel_mode":"stereo"}`, `{"channel_mode":"left"}`, or `{"channel_mode":"right"}`.
 - `POST /api/bluetooth-name` accepts `{"bluetooth_name":"CoolCube Kitchen"}` and saves the name for later Bluetooth-mode boots.
+- `POST /api/firmware` accepts a raw PlatformIO firmware `.bin` app image for OTA update when OTA support is reported by `/api/status`.
 
 Channel routing applies only in Snapclient mode:
 
@@ -148,6 +150,8 @@ Channel routing applies only in Snapclient mode:
 The selected channel mode is saved in ESP32 preferences and restored on later Snapclient boots. Bluetooth mode ignores this setting and remains a simple single-speaker receiver.
 
 The Bluetooth name setting is also saved in ESP32 preferences, but it is only read when Bluetooth mode starts.
+
+OTA firmware updates are intended for trusted local-network use. First-time OTA enablement, partition-table changes, bootloader recovery, and recovery from broken Wi-Fi or a broken OTA endpoint still require USB flashing.
 
 See [API.md](/C:/audio-firmware-lab/esp32/snapclient/API.md) for the companion-app API reference and [control-api.md](/C:/audio-firmware-lab/esp32/snapclient/docs/control-api.md) for request and response examples.
 
@@ -234,6 +238,8 @@ Why:
 ## Build / flash
 
 The project defaults to the WROVER target in `platformio.ini`.
+
+The default build uses PlatformIO's `default_16MB.csv` partition table, which provides two OTA app slots for the firmware update endpoint.
 
 Before building for the first time, copy `include/secrets.example.h` to
 `include/secrets.h` and set your local Wi-Fi SSID and password. Keep

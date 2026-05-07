@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-05-07
+
+- Added Snapclient-mode OTA firmware update support through `POST /api/firmware`.
+- Added OTA capability, update state, board, flash size, and OTA partition size fields to `/api/status`.
+- Clarified the OTA firmware update contract for SnapControl app implementation and firmware endpoint behavior.
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
 ## [0.13.4] - 2026-05-07
