@@ -11,6 +11,7 @@ void ModeLedController::begin() {
 
 void ModeLedController::setMode(app_config::OperatingMode mode) {
   activeMode_ = mode;
+  bluetoothClientConnected_ = false;
   lastToggleMs_ = millis();
 
   // Snapclient is the normal appliance mode, so keep the LED steady.
@@ -24,8 +25,26 @@ void ModeLedController::setMode(app_config::OperatingMode mode) {
   }
 }
 
+void ModeLedController::setBluetoothClientConnected(bool connected) {
+  if (bluetoothClientConnected_ == connected) {
+    return;
+  }
+
+  bluetoothClientConnected_ = connected;
+  lastToggleMs_ = millis();
+
+  if (activeMode_ == app_config::OperatingMode::Bluetooth) {
+    writeBtLed(bluetoothClientConnected_);
+  }
+}
+
 void ModeLedController::update() {
   if (activeMode_ != app_config::OperatingMode::Bluetooth) {
+    return;
+  }
+
+  if (bluetoothClientConnected_) {
+    writeBtLed(true);
     return;
   }
 

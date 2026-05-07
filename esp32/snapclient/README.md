@@ -1,6 +1,6 @@
 # ESP32 Audio Client v9.30
 
-Version: **0.13.0**
+Version: **0.13.4**
 
 This revision keeps the **ESP32-WROVER-IE-N16R8** target, keeps **I2S MCLK optional**, keeps Snapclient on the project's **PCM** stream handling, and adds a Snapclient-mode local HTTP control API for companion apps such as SnapApp. Bluetooth mode remains simple connect-and-play and does not expose or use local channel routing.
 
@@ -33,8 +33,8 @@ Edit hardware assignments in [board_config.h](/C:/audio-firmware-lab/esp32/snapc
 | I2S MCLK | `GPIO0` | Optional only, used only when `I2S_MCLK_ENABLED = true` |
 | SENSE | `GPIO34` | Battery divider ADC input, configurable in `board_config.h` |
 | Mode button | `GPIO23` | Runtime momentary mode-toggle button, active low with internal pull-up |
-| Wi-Fi LED | `GPIO32` | Snapclient/Wi-Fi status LED, active high |
-| BT LED | `GPIO33` | Bluetooth status LED, active high |
+| Wi-Fi LED | `GPIO32` | Snapclient/Wi-Fi status LED, active low for common-anode RGB wiring |
+| BT LED | `GPIO33` | Bluetooth status LED, active low for common-anode RGB wiring |
 
 ## MCLK configuration
 
@@ -124,12 +124,12 @@ The LED logic is implemented in [mode_led_controller.cpp](/C:/audio-firmware-lab
 
 Recommended default LED wiring:
 
-- connect `GPIO32` through a resistor to the Wi-Fi LED anode
-- connect `GPIO33` through a resistor to the BT LED anode
-- connect the LED cathode to `GND`
-- this matches the default active-high configuration
+- connect the RGB LED common anode to `3V3`
+- connect the Wi-Fi LED cathode through a resistor to `GPIO32`
+- connect the BT LED cathode through a resistor to `GPIO33`
+- this matches the default active-low common-anode configuration
 
-If either LED is wired differently, change `WIFI_STATUS_LED_ACTIVE_HIGH` or `BT_STATUS_LED_ACTIVE_HIGH` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
+If either LED is wired as GPIO -> resistor -> LED -> GND, change `WIFI_STATUS_LED_ACTIVE_HIGH` or `BT_STATUS_LED_ACTIVE_HIGH` to `true` in [board_config.h](/C:/audio-firmware-lab/esp32/snapclient/include/board_config.h).
 
 ## SnapApp control API
 

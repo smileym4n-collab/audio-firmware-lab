@@ -2,7 +2,7 @@
 
 /*
   ESP32 audio client v9.30 configuration.
-  Version: 0.13.0
+  Version: 0.13.4
   Edit values below for your local network, Snapserver, and Bluetooth naming.
 */
 
@@ -32,7 +32,7 @@ inline const char *operatingModeName(OperatingMode mode) {
 }
 
 static constexpr char PROJECT_TITLE[] = "ESP32 Audio Client v9.30";
-static constexpr char FIRMWARE_VERSION[] = "0.13.0";
+static constexpr char FIRMWARE_VERSION[] = "0.13.4";
 static constexpr char TARGET_MODULE[] = "ESP32-WROVER-IE-N16R8";
 
 // ---------- Wi-Fi ----------
@@ -138,6 +138,7 @@ static constexpr int SNAPCLIENT_PROCESSING_LAG_MS = -172;
 static constexpr int SNAPCLIENT_SYNC_INTERVAL = 25;
 static constexpr uint32_t PSRAM_ALLOC_THRESHOLD_BYTES = 4096;
 static constexpr uint32_t SNAP_OUTPUT_IDLE_TIMEOUT_MS = 3000;
+static constexpr uint32_t SNAP_OUTPUT_IDLE_RESTART_MS = 20000;
 
 // ---------- Runtime ----------
 static constexpr uint32_t CPU_FREQ_MHZ = 240;
@@ -148,6 +149,7 @@ static constexpr BaseType_t SNAPCLIENT_TASK_CORE = 1;
 static constexpr UBaseType_t SNAPCLIENT_TASK_PRIORITY = 4;
 static constexpr uint32_t SNAPCLIENT_TASK_STACK_WORDS = 8192;
 static constexpr uint32_t SNAPCLIENT_TASK_DELAY_MS = 1;
+static constexpr uint32_t SNAPCLIENT_TASK_STOP_TIMEOUT_MS = 1000;
 // Leave periodic Snapclient stats off during live audio testing so the UART
 // does not add avoidable scheduling pressure. Warnings/errors still log.
 static constexpr bool SNAPCLIENT_PERIODIC_STATS_ENABLED = false;
