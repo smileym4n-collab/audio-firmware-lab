@@ -1,0 +1,40 @@
+name: Build Firmware Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Prepare release files
+        run: |
+          mkdir release
+          cp .pio/build/*/firmware.bin release/
+          cp .pio/build/*/bootloader.bin release/ || true
+          cp .pio/build/*/partitions.bin release/ || true
+
+      - name: Upload firmware to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
