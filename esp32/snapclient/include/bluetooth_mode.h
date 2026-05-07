@@ -15,6 +15,7 @@ class BluetoothMode : public RuntimeMode {
   void loop() override;
   const char *name() const override { return "Bluetooth"; }
   void prepareForRestart() override;
+  bool bluetoothClientConnected() const override { return connected_; }
 
  private:
   static void handleAudioData(const uint8_t *data, uint32_t length);
@@ -30,4 +31,5 @@ class BluetoothMode : public RuntimeMode {
   BluetoothA2DPSink a2dpSink_;
   String bluetoothDeviceName_;
   uint16_t activeSampleRate_ = 44100;
+  volatile bool connected_ = false;
 };

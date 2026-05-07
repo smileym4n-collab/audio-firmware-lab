@@ -35,6 +35,9 @@ class SnapclientMode : public RuntimeMode {
   void sendControlStatus();
   void handleSetChannelMode();
   void handleSetBluetoothName();
+  void logDiagnosticSnapshot(const char *reason);
+  bool startSnapClientTask();
+  void stopSnapClientTask(uint32_t timeoutMs);
   static void snapClientTaskEntry(void *context);
   void snapClientTaskLoop();
 
@@ -51,5 +54,7 @@ class SnapclientMode : public RuntimeMode {
   TaskHandle_t snapTaskHandle_ = nullptr;
   volatile bool snapTaskRunning_ = false;
   uint32_t lastWifiCheckMs_ = 0;
+  uint32_t playbackIdleSinceMs_ = 0;
   bool playbackIdleLogged_ = false;
+  bool restartPrepared_ = false;
 };

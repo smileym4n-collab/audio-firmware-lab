@@ -70,6 +70,10 @@ class ProjectSnapProcessorRTOS : public snap_arduino::SnapProcessorRTOS {
     maybeLogRuntime(nullptr);
   }
 
+  void logRuntime(const char *reason, bool force) {
+    maybeLogRuntime(reason, force);
+  }
+
   bool isOutputTimedOut(uint32_t timeoutMs) const {
     return p_snap_output != nullptr && p_snap_output->isStarted() &&
            !p_snap_output->isActive(timeoutMs);

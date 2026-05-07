@@ -26,11 +26,12 @@ static constexpr int BOOT_MODE_BUTTON_PIN = 23;
 static constexpr bool BOOT_MODE_BUTTON_USE_PULLUP = true;
 static constexpr int BOOT_MODE_BUTTON_ACTIVE_LEVEL = LOW;
 
-// Dedicated mode-status LEDs. Default wiring is LED + resistor from GPIO to GND.
+// Dedicated mode-status LEDs. Default wiring uses common-anode RGB LED channels:
+// 3V3 -> common anode, cathode -> resistor -> GPIO. The GPIO sinks current.
 static constexpr int WIFI_STATUS_LED_PIN = 32;
-static constexpr bool WIFI_STATUS_LED_ACTIVE_HIGH = true;
+static constexpr bool WIFI_STATUS_LED_ACTIVE_HIGH = false;
 static constexpr int BT_STATUS_LED_PIN = 33;
-static constexpr bool BT_STATUS_LED_ACTIVE_HIGH = true;
+static constexpr bool BT_STATUS_LED_ACTIVE_HIGH = false;
 
 // Backward-compatible aliases for older code/docs that refer to the single
 // status LED. The Wi-Fi LED is the normal Snapclient-mode status indicator.

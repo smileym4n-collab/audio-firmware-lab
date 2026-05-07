@@ -1,5 +1,7 @@
 #include "snapclient_mode.h"
 
+#include <esp_heap_caps.h>
+
 #include "bluetooth_name_store.h"
 #include "channel_mode_store.h"
 #include "project_snap_processor_rtos.h"
@@ -147,14 +149,10 @@ bool SnapclientMode::begin() {
     return false;
   }
 
-  snapTaskRunning_ = true;
-  xTaskCreatePinnedToCore(snapClientTaskEntry,
-                          "snap-loop",
-                          app_config::SNAPCLIENT_TASK_STACK_WORDS,
-                          this,
-                          app_config::SNAPCLIENT_TASK_PRIORITY,
-                          &snapTaskHandle_,
-                          app_config::SNAPCLIENT_TASK_CORE);
+  if (!startSnapClientTask()) {
+    return false;
+  }
+
   Serial.printf("[snapclient] task core=%ld prio=%lu stack=%lu delay=%lu\n",
                 static_cast<long>(app_config::SNAPCLIENT_TASK_CORE),
                 static_cast<unsigned long>(app_config::SNAPCLIENT_TASK_PRIORITY),
@@ -176,6 +174,8 @@ void SnapclientMode::loop() {
     lastWifiCheckMs_ = nowMs;
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("[wifi] link lost, restarting...");
+      logDiagnosticSnapshot("wifi-link-lost");
+      prepareForRestart();
       delay(app_config::RESTART_DELAY_MS);
       ESP.restart();
     }
@@ -184,12 +184,27 @@ void SnapclientMode::loop() {
   snapProcessor_->logRuntime();
   if (snapProcessor_->isOutputTimedOut(
           app_config::SNAP_OUTPUT_IDLE_TIMEOUT_MS)) {
+    if (playbackIdleSinceMs_ == 0) {
+      playbackIdleSinceMs_ = nowMs;
+    }
+
     if (!playbackIdleLogged_) {
       Serial.println(
           "[snapclient] playback idle timeout: decoded PCM is no longer reaching the output task");
+      logDiagnosticSnapshot("idle-timeout");
       playbackIdleLogged_ = true;
     }
+
+    if ((nowMs - playbackIdleSinceMs_) >= app_config::SNAP_OUTPUT_IDLE_RESTART_MS) {
+      Serial.println(
+          "[snapclient] playback idle persisted, restarting Snapclient mode");
+      logDiagnosticSnapshot("idle-restart");
+      prepareForRestart();
+      delay(app_config::RESTART_DELAY_MS);
+      ESP.restart();
+    }
   } else {
+    playbackIdleSinceMs_ = 0;
     playbackIdleLogged_ = false;
   }
 
@@ -227,7 +242,88 @@ bool extractJsonStringValue(const String &body, const char *key, String &value) 
 }
 
 void SnapclientMode::prepareForRestart() {
+  if (restartPrepared_) {
+    return;
+  }
+
+  restartPrepared_ = true;
+  logDiagnosticSnapshot("prepare-restart");
+  stopSnapClientTask(app_config::SNAPCLIENT_TASK_STOP_TIMEOUT_MS);
+  snapProcessor_->end();
   audioOutput_.muteForRestart(app_config::AUDIO_MODE_CHANGE_MUTE_RAMP_MS);
+}
+
+void SnapclientMode::logDiagnosticSnapshot(const char *reason) {
+  const uint32_t largestDmaBlock =
+      heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  const int wifiStatus = static_cast<int>(WiFi.status());
+  const long rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  const char *taskState =
+      snapTaskHandle_ != nullptr ? (snapTaskRunning_ ? "running" : "stopping")
+                                 : "stopped";
+
+  Serial.printf(
+      "[diag] reason=%s uptime=%lu wifi=%d rssi=%ld heap=%lu minheap=%lu psram=%lu dma_largest=%lu snap_task=%s\n",
+      reason != nullptr ? reason : "-",
+      static_cast<unsigned long>(millis()),
+      wifiStatus,
+      rssi,
+      static_cast<unsigned long>(ESP.getFreeHeap()),
+      static_cast<unsigned long>(ESP.getMinFreeHeap()),
+      static_cast<unsigned long>(ESP.getFreePsram()),
+      static_cast<unsigned long>(largestDmaBlock),
+      taskState);
+
+  snapProcessor_->logRuntime(reason, true);
+}
+
+bool SnapclientMode::startSnapClientTask() {
+  snapTaskRunning_ = true;
+  snapTaskHandle_ = nullptr;
+
+  const BaseType_t result =
+      xTaskCreatePinnedToCore(snapClientTaskEntry,
+                              "snap-loop",
+                              app_config::SNAPCLIENT_TASK_STACK_WORDS,
+                              this,
+                              app_config::SNAPCLIENT_TASK_PRIORITY,
+                              &snapTaskHandle_,
+                              app_config::SNAPCLIENT_TASK_CORE);
+
+  if (result == pdPASS) {
+    return true;
+  }
+
+  snapTaskRunning_ = false;
+  snapTaskHandle_ = nullptr;
+  Serial.printf("[snapclient] task creation failed result=%ld\n",
+                static_cast<long>(result));
+  logDiagnosticSnapshot("snap-task-create-failed");
+  snapProcessor_->end();
+  return false;
+}
+
+void SnapclientMode::stopSnapClientTask(uint32_t timeoutMs) {
+  if (!snapTaskRunning_ && snapTaskHandle_ == nullptr) {
+    return;
+  }
+
+  Serial.println("[snapclient] stopping snap loop task");
+  snapTaskRunning_ = false;
+
+  const uint32_t startMs = millis();
+  while (snapTaskHandle_ != nullptr && (millis() - startMs) < timeoutMs) {
+    delay(10);
+  }
+
+  if (snapTaskHandle_ != nullptr) {
+    Serial.printf("[snapclient] snap loop task stop timeout after %lums\n",
+                  static_cast<unsigned long>(millis() - startMs));
+    return;
+  }
+
+  Serial.printf("[snapclient] snap loop task stopped in %lums\n",
+                static_cast<unsigned long>(millis() - startMs));
 }
 
 void SnapclientMode::snapClientTaskEntry(void *context) {
@@ -245,6 +341,7 @@ void SnapclientMode::snapClientTaskLoop() {
     }
     vTaskDelay(pdMS_TO_TICKS(app_config::SNAPCLIENT_TASK_DELAY_MS));
   }
+  snapTaskHandle_ = nullptr;
 }
 
 bool SnapclientMode::connectWifiWithTimeout() {

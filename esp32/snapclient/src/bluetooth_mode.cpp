@@ -61,7 +61,11 @@ void BluetoothMode::handleSampleRate(uint16_t rate) {
 
 void BluetoothMode::handleConnectionState(esp_a2d_connection_state_t state,
                                           void *context) {
-  (void)context;
+  auto *self = static_cast<BluetoothMode *>(context);
+  if (self != nullptr) {
+    self->connected_ = state == ESP_A2D_CONNECTION_STATE_CONNECTED;
+  }
+
   Serial.printf("[bluetooth] connection state=%d\n", static_cast<int>(state));
 }
 

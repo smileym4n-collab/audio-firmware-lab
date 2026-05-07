@@ -4,6 +4,24 @@
 
 - Removed historical change-summary sections from the README so version notes live only in this changelog.
 
+## [0.13.4] - 2026-05-07
+
+- Added Snapclient restart diagnostics for heap, Wi-Fi, task state, and PCM queue counters before automatic recovery restarts.
+- Checked Snapclient loop task creation and fail cleanly with diagnostics if the task cannot be started.
+- Stopped the Snapclient loop and processor before restart muting so mode/recovery restarts quiesce audio writes first.
+
+## [0.13.3] - 2026-05-06
+
+- Added automatic Snapclient-mode restart after a sustained decoded-output idle timeout so stalled Spotify/Snapserver playback can recover without manual mode switching.
+
+## [0.13.2] - 2026-05-06
+
+- Changed the Wi-Fi and Bluetooth status LED defaults to active-low for common-anode RGB LED wiring.
+
+## [0.13.1] - 2026-05-06
+
+- Changed Bluetooth LED behavior so it blinks while waiting for a source and stays solid when a Bluetooth client is connected.
+
 ## [0.13.0] - 2026-05-06
 
 - Added a Snapclient-mode control API endpoint for saving the Bluetooth device name used on later Bluetooth boots.

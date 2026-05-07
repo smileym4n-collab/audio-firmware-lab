@@ -8,4 +8,5 @@ class RuntimeMode {
   virtual void loop() = 0;
   virtual const char *name() const = 0;
   virtual void prepareForRestart() {}
+  virtual bool bluetoothClientConnected() const { return false; }
 };

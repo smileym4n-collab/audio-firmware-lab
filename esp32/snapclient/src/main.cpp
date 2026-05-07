@@ -1,6 +1,6 @@
 /*
   Project: ESP32 audio client v9.30 (SnapApp channel control API)
-  Version: 0.13.0
+  Version: 0.13.4
   Framework: Arduino (PlatformIO)
 
   Pin map (ESP32-WROVER-IE-N16R8 -> external I2S DAC):
@@ -10,8 +10,8 @@
     GPIO0  -> Optional I2S MCLK when enabled in board_config.h
     GPIO34 -> SENSE / battery voltage divider input
     GPIO23 -> Runtime mode-toggle button (active low with internal pull-up)
-    GPIO32 -> Wi-Fi/Snapclient status LED (active high)
-    GPIO33 -> Bluetooth status LED (active high)
+    GPIO32 -> Wi-Fi/Snapclient status LED (active low, common-anode RGB)
+    GPIO33 -> Bluetooth status LED (active low, common-anode RGB)
 
   Notes:
   - Cold boot always starts in Snapclient mode.
@@ -99,6 +99,9 @@ void setup() {
 }
 
 void loop() {
+  if (gActiveMode != nullptr) {
+    gModeLed.setBluetoothClientConnected(gActiveMode->bluetoothClientConnected());
+  }
   gModeLed.update();
   gModeSwitch.update();
 
