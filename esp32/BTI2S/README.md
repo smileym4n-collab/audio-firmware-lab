@@ -1,7 +1,7 @@
 # BTI2S (ESP32 Bluetooth Audio to I2S)
 
 ## Current version
-0.12.0
+v1.0.0
 
 ## Summary
 
@@ -71,6 +71,13 @@ Install this Arduino library:
 - Select an ESP32 board in Arduino IDE.
 - Ensure Bluetooth is supported/enabled for the selected board/core.
 - Build and upload `BTI2S.ino`.
+
+## Versioning / Release notes
+
+- Firmware versions use semantic versioning in the form `vMAJOR.MINOR.PATCH`.
+- The current firmware version is recorded in both `BTI2S.ino` and this README.
+- User-visible changes should be recorded in `CHANGELOG.md`.
+- GitHub releases are expected to provide a compiled firmware `.bin` artifact for installation/update workflows.
 
 ## Assumptions
 
