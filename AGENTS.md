@@ -45,13 +45,6 @@ Versioning rules for PreAmpv2:
 - Keep entries short, specific, and human-readable.
 - Do not add changelog entries for trivial formatting-only edits unless explicitly requested.
 
-- ## Branching and pull requests
-
-- Every task must start from the latest `main`.
-- Create a new branch and a new PR for every task.
-- Never continue from an older PR branch after that branch has been merged.
-- If a branch is stale or conflicts with `main`, re-apply the changes from current `main` in a fresh PR.
-
 Create separate folders for each real project under the relevant MCU folder.
 
 Examples:
