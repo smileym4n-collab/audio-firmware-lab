@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.9
+Version: 0.3.14
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
 
@@ -45,12 +45,12 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
   - Volume up command: `0x0B` (raw reference `0xAA0B87EE`)
   - Volume down command: `0x0D` (raw reference `0xAA0D87EE`)
   - Short press steps volume once.
-  - Held button uses repeat frames with controlled stepping rate.
+  - Held button keeps the motor moving while valid repeat frames continue.
   - Unrelated commands are ignored.
 - Motorized potentiometer drive on `PB5`/`PB4`:
   - Volume up drives clockwise (`PB5=HIGH`, `PB4=LOW`)
   - Volume down drives anti-clockwise (`PB5=LOW`, `PB4=HIGH`)
-  - Motor stop is enforced by deadband target, runtime timeout, and ADC end-stop checks.
+  - Motor stop is enforced by deadband target, held-button repeat timeout, short-step runtime timeout, and ADC end-stop checks.
 
 ## LCD library choice
 This sketch uses `LiquidCrystal_I2C`.
