@@ -38,6 +38,8 @@ All notable changes to this repository will be recorded here.
 - `esp32/BTI2S` version bumped to `0.9.0`
 
 ### Fixed
+- `attiny/1616/PreAmpv2` keeps held IR volume movement alive on every valid repeat frame and avoids applying the short-step runtime timeout to deliberate held-button movement
+- `attiny/1616/PreAmpv2` version bumped to `0.3.14`
 - `esp32/BTI2S` removes helper-function name collision risk by inlining `bat?` status print logic (fixes `redefinition of 'void printBatteryStatus()'` build error in some Arduino IDE sketch states)
 - `esp32/BTI2S` version bumped to `0.10.1`
 - `esp32/BTI2S` now always recognizes `blebat?` and `blebat=on|off` serial commands; when BLE battery is compile-time disabled it returns an explicit disabled message instead of `Unknown command`
