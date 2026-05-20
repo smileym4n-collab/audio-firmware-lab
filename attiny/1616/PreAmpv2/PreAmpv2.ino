@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.14
+  Version: 0.3.15
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -117,7 +117,7 @@ static const uint8_t INPUT_STABLE_SAMPLES_REQUIRED = 3;
 static const uint16_t OUTPUT_RELAY_DELAY_MS = 1000;
 static const uint16_t INPUT_SAMPLE_PERIOD_MS = 20;
 static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
-static const uint16_t DISPLAY_PERIOD_MS = 120;
+static const uint16_t DISPLAY_PERIOD_MS = 80;
 static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 
 // Motorized potentiometer control limits (PB5/PB4 through motor driver).
@@ -606,6 +606,33 @@ static void updateInputRelays(InputSource input)
   digitalWrite(RELAY_PHONO_PIN, input == INPUT_PHONO ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
 }
 
+#if !PREAMPV2_LCD_DEBUG
+static void makeCenteredLcdLine(const char* text, char* out)
+{
+  memset(out, ' ', LCD_COLS);
+  out[LCD_COLS] = '\0';
+
+  const size_t textLen = strlen(text);
+  const uint8_t copyLen = (textLen < LCD_COLS) ? static_cast<uint8_t>(textLen) : LCD_COLS;
+  const uint8_t pad = static_cast<uint8_t>((LCD_COLS - copyLen) / 2);
+  memcpy(out + pad, text, copyLen);
+}
+
+static void writeLcdLineChanged(uint8_t row, const char* text)
+{
+  static char lastLine[LCD_ROWS][LCD_COLS + 1] = {{0}};
+
+  for (uint8_t col = 0; col < LCD_COLS; ++col) {
+    if (lastLine[row][col] != text[col]) {
+      g_lcd.setCursor(col, row);
+      g_lcd.print(text[col]);
+      lastLine[row][col] = text[col];
+    }
+  }
+  lastLine[row][LCD_COLS] = '\0';
+}
+#endif
+
 static void updateDisplay()
 {
   if (!g_lcdReady) {
@@ -690,16 +717,9 @@ static void updateDisplay()
   static int16_t lastDbTenthsShown = 32767;
 
   if (g_selectedInput != lastInputShown) {
-    const char* inputText = INPUT_NAMES[g_selectedInput];
-    const size_t inputLen = strlen(inputText);
-    const uint8_t inputPad = (LCD_COLS > inputLen) ? static_cast<uint8_t>((LCD_COLS - inputLen) / 2) : 0;
-
-    g_lcd.setCursor(0, 0);
-    for (uint8_t i = 0; i < LCD_COLS; ++i) {
-      g_lcd.print(' ');
-    }
-    g_lcd.setCursor(inputPad, 0);
-    g_lcd.print(inputText);
+    char line[LCD_COLS + 1];
+    makeCenteredLcdLine(INPUT_NAMES[g_selectedInput], line);
+    writeLcdLineChanged(0, line);
     lastInputShown = g_selectedInput;
   }
 
@@ -710,15 +730,10 @@ static void updateDisplay()
 
     char volumeText[12];
     snprintf(volumeText, sizeof(volumeText), "%s dB", dbText);
-    const size_t volumeLen = strlen(volumeText);
-    const uint8_t volumePad = (LCD_COLS > volumeLen) ? static_cast<uint8_t>((LCD_COLS - volumeLen) / 2) : 0;
 
-    g_lcd.setCursor(0, 1);
-    for (uint8_t i = 0; i < LCD_COLS; ++i) {
-      g_lcd.print(' ');
-    }
-    g_lcd.setCursor(volumePad, 1);
-    g_lcd.print(volumeText);
+    char line[LCD_COLS + 1];
+    makeCenteredLcdLine(volumeText, line);
+    writeLcdLineChanged(1, line);
     lastDbTenthsShown = dbTenths;
   }
 #endif
