@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.13
+  Version: 0.3.14
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -123,7 +123,7 @@ static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 // Motorized potentiometer control limits (PB5/PB4 through motor driver).
 static const uint16_t MOTOR_STEP_ADC = 8;              // One short IR press target increment.
 static const uint16_t MOTOR_DEADBAND_ADC = 3;          // Stop motor when inside this error band.
-static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout per continuous movement.
+static const uint16_t MOTOR_MAX_RUN_MS = 2200;         // Safety timeout for a single short-press movement.
 static const uint16_t MOTOR_CONTROL_SAMPLE_MS = 8;     // Faster motor feedback sampling for smoother motion.
 static const uint8_t MOTOR_CONTROL_ADC_SAMPLES = 2;    // Light averaging for motor-control responsiveness.
 static const uint8_t ADC_AT_MIN_THRESHOLD = 1;         // Treat as bottom mechanical travel.
@@ -427,13 +427,19 @@ static void applyIrVolumeCommand(bool isVolUp, bool isRepeatFrame)
 {
   const uint32_t nowMs = millis();
   const bool wasRunning = g_motorRunning;
+  const uint16_t currentAdc = g_lastVolAdc;
+  const MotorDirection requestedDirection = isVolUp ? MOTOR_DIR_VOLUME_UP : MOTOR_DIR_VOLUME_DOWN;
+
+  if (isRepeatFrame) {
+    // Every valid held-button repeat is a keep-alive, even when motor updates
+    // are rate-limited below. This avoids stopping during uneven IR repeat gaps.
+    g_lastIrMotorCommandMs = nowMs;
+  }
+
   if ((nowMs - g_lastIrApplyMs) < IR_REPEAT_MIN_INTERVAL_MS) {
     return; // Controlled repeat speed while button is held.
   }
   g_lastIrApplyMs = nowMs;
-
-  const uint16_t currentAdc = g_lastVolAdc;
-  const MotorDirection requestedDirection = isVolUp ? MOTOR_DIR_VOLUME_UP : MOTOR_DIR_VOLUME_DOWN;
 
   if (isRepeatFrame) {
     // Hold mode: repeats are treated as keep-alive for continuous movement.
@@ -555,7 +561,8 @@ static void serviceMotorControl(uint32_t nowMs)
     return;
   }
 
-  if ((nowMs - g_motorRunStartMs) >= MOTOR_MAX_RUN_MS) {
+  if ((g_motorMode == MOTOR_MODE_STEP) &&
+      ((nowMs - g_motorRunStartMs) >= MOTOR_MAX_RUN_MS)) {
     motorStop();
     return;
   }
