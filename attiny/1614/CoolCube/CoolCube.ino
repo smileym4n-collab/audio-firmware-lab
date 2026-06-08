@@ -1,0 +1,277 @@
+/*
+  Project: CoolCube LM1971 volume and TDA7396 amplifier control
+  Target:  ATtiny1614 (megaTinyCore)
+
+  Pin map from PINOUT.md
+  ----------------------
+  PA1 -> Volume pot wiper (ADC input)
+  PA2 -> LM1971 DATA
+  PA3 -> LM1971 CLOCK
+  PA4 -> TDA7396 STANDBY control
+  PA5 -> TDA7396 MUTE control
+  PA6 -> LM1971 LOAD (active-low shift enable / latch)
+  PA7 -> Battery sense divider (ADC input)
+
+  Amplifier control logic
+  -----------------------
+  AMP_STBY_CTRL HIGH = standby active / amps off
+  AMP_STBY_CTRL LOW  = standby released / amps on
+  AMP_MUTE_CTRL HIGH = mute active
+  AMP_MUTE_CTRL LOW  = mute released
+
+  Notes
+  -----
+  - LM1971 volume behaviour is copied from the ATtiny412 firmware.
+  - Pot ends are expected at VCC and GND.
+  - Battery sense uses the default analogRead reference, assumed to be VCC.
+*/
+
+// LM1971 control pins
+const uint8_t PIN_LM_DATA  = PIN_PA2; // Serial data to LM1971
+const uint8_t PIN_LM_CLOCK = PIN_PA3; // Shift clock to LM1971
+const uint8_t PIN_LM_LOAD  = PIN_PA6; // Active-low shift enable / latch
+
+// ADC pins
+const uint8_t PIN_POT        = PIN_PA1; // Pot wiper input
+const uint8_t PIN_VBAT_SENSE = PIN_PA7; // 220k/47k divider from VBAT_IN
+
+// Amplifier control pins. HIGH is the safe/off state for both signals.
+const uint8_t PIN_AMP_STBY_CTRL = PIN_PA4; // HIGH = standby active, LOW = amps on
+const uint8_t PIN_AMP_MUTE_CTRL = PIN_PA5; // HIGH = mute active, LOW = unmuted
+
+// LM1971 level constants
+const uint8_t LM_ADDRESS_CHANNEL_1 = 0x00; // LM1971 address byte for the single audio channel
+const uint8_t LM_LEVEL_MAX_VOLUME  = 0x00; // 0 dB attenuation
+const uint8_t LM_LEVEL_MIN_VOLUME  = 0x3E; // -62 dB attenuation
+const uint8_t LM_LEVEL_MUTE        = 0x3F; // 0x3F and above select mute
+
+// Behaviour copied from the ATtiny412 firmware.
+const uint8_t ADC_STEP_THRESHOLD = 2;
+const uint8_t ADC_AVERAGE_SAMPLES = 4;       // Small startup/run-time pot smoothing
+const uint8_t LM_STARTUP_WRITES = 3;         // Repeat startup frames in case the LM1971 is still settling
+const uint16_t LM_REFRESH_MS = 1000;         // Periodically resend current level in case a frame was missed
+
+// Startup sequencing
+const uint16_t AMP_STARTUP_SETTLE_MS = 800;  // Rails, DAC, VREF and analogue section settle time
+const uint16_t AMP_UNMUTE_DELAY_MS = 150;    // Delay between standby release and mute release
+
+// Battery sense constants
+const uint16_t ADC_REFERENCE_MV = 5000;      // ATtiny1614 VCC / default analogRead reference
+const uint32_t VBAT_TOP_OHMS = 220000UL;     // VBAT_IN to sense node
+const uint32_t VBAT_BOTTOM_OHMS = 47000UL;   // Sense node to GND
+const uint16_t VBAT_POWER_FAIL_MV = 10500;   // Below normal 12 V operation; catches input loss
+const uint16_t VBAT_RECOVER_MV = 11500;      // Hysteresis if reused for diagnostics/recovery
+const uint8_t VBAT_AVERAGE_SAMPLES = 2;
+const uint8_t VBAT_FAIL_DEBOUNCE_COUNT = 3;
+const uint16_t VBAT_POWER_FAIL_ADC =
+  (uint64_t)VBAT_POWER_FAIL_MV * VBAT_BOTTOM_OHMS * 1023UL /
+  ((uint64_t)(VBAT_TOP_OHMS + VBAT_BOTTOM_OHMS) * ADC_REFERENCE_MV);
+const uint16_t VBAT_RECOVER_ADC =
+  (uint64_t)VBAT_RECOVER_MV * VBAT_BOTTOM_OHMS * 1023UL /
+  ((uint64_t)(VBAT_TOP_OHMS + VBAT_BOTTOM_OHMS) * ADC_REFERENCE_MV);
+
+uint16_t lastAdc = 0;
+uint8_t lastLevel = LM_LEVEL_MUTE;
+uint32_t lastWriteMillis = 0;
+bool powerFailLatched = false;
+
+// Shift one 8-bit value to LM1971, MSB first.
+static void shiftLM1971Byte(uint8_t value) {
+  for (int8_t bitIndex = 7; bitIndex >= 0; --bitIndex) {
+    digitalWrite(PIN_LM_CLOCK, LOW);
+    digitalWrite(PIN_LM_DATA, (value >> bitIndex) & 0x01);
+    delayMicroseconds(1);
+    digitalWrite(PIN_LM_CLOCK, HIGH);
+    delayMicroseconds(1);
+  }
+}
+
+// Send address byte then attenuation byte as one 16-bit LM1971 transfer.
+static void writeLM1971(uint8_t level) {
+  digitalWrite(PIN_LM_CLOCK, LOW);
+  digitalWrite(PIN_LM_LOAD, LOW);
+  delayMicroseconds(2);
+
+  shiftLM1971Byte(LM_ADDRESS_CHANNEL_1);
+  shiftLM1971Byte(level);
+
+  // Latch shifted word into LM1971
+  digitalWrite(PIN_LM_CLOCK, LOW);
+  digitalWrite(PIN_LM_LOAD, HIGH);
+  delayMicroseconds(2);
+  lastWriteMillis = millis();
+}
+
+static void writeLM1971Repeated(uint8_t level, uint8_t repeatCount) {
+  for (uint8_t count = 0; count < repeatCount; ++count) {
+    writeLM1971(level);
+    delay(2);
+  }
+}
+
+static uint8_t levelFromAdc(uint16_t adcValue) {
+  // Pot at minimum -> mute, otherwise 0x3E..0x00 attenuation.
+  if (adcValue <= 2) {
+    return LM_LEVEL_MUTE;
+  }
+
+  return map(adcValue, 3, 1023, LM_LEVEL_MIN_VOLUME, LM_LEVEL_MAX_VOLUME);
+}
+
+static uint16_t readPotAverage() {
+  uint32_t total = 0;
+
+  // Discard one read after startup/reference changes, then average a few.
+  analogRead(PIN_POT);
+  for (uint8_t sample = 0; sample < ADC_AVERAGE_SAMPLES; ++sample) {
+    total += analogRead(PIN_POT);
+    delay(1);
+  }
+
+  return total / ADC_AVERAGE_SAMPLES;
+}
+
+static uint16_t readBatterySenseRaw() {
+  uint32_t total = 0;
+
+  analogRead(PIN_VBAT_SENSE);
+  for (uint8_t sample = 0; sample < VBAT_AVERAGE_SAMPLES; ++sample) {
+    total += analogRead(PIN_VBAT_SENSE);
+  }
+
+  return total / VBAT_AVERAGE_SAMPLES;
+}
+
+static void ampSafeOff() {
+  // Assert mute first, then standby. Both HIGH states are safe/off.
+  digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
+  delayMicroseconds(200);
+  digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+}
+
+static bool isPowerFailDetected() {
+  static uint8_t lowCount = 0;
+
+  if (powerFailLatched) {
+    return true;
+  }
+
+  const uint16_t vbatRaw = readBatterySenseRaw();
+  if (vbatRaw <= VBAT_POWER_FAIL_ADC) {
+    if (lowCount < VBAT_FAIL_DEBOUNCE_COUNT) {
+      ++lowCount;
+    }
+  } else if (vbatRaw >= VBAT_RECOVER_ADC) {
+    lowCount = 0;
+  }
+
+  if (lowCount >= VBAT_FAIL_DEBOUNCE_COUNT) {
+    powerFailLatched = true;
+    ampSafeOff();
+    return true;
+  }
+
+  return false;
+}
+
+static bool delayWithPowerFailCheck(uint16_t delayMs) {
+  const uint32_t startMs = millis();
+
+  while ((millis() - startMs) < delayMs) {
+    if (isPowerFailDetected()) {
+      return false;
+    }
+    delay(1);
+  }
+
+  return true;
+}
+
+static bool ampStartupSequence() {
+  if (!delayWithPowerFailCheck(AMP_STARTUP_SETTLE_MS)) {
+    return false;
+  }
+
+  // Conservative startup: force LM1971 mute before reading the pot.
+  writeLM1971Repeated(LM_LEVEL_MUTE, LM_STARTUP_WRITES);
+  if (isPowerFailDetected()) {
+    return false;
+  }
+
+  lastAdc = readPotAverage();
+  if (isPowerFailDetected()) {
+    return false;
+  }
+
+  lastLevel = levelFromAdc(lastAdc);
+  writeLM1971Repeated(lastLevel, LM_STARTUP_WRITES);
+  if (isPowerFailDetected()) {
+    return false;
+  }
+
+  // Release standby first, then release mute after the amplifier has settled.
+  digitalWrite(PIN_AMP_STBY_CTRL, LOW);
+  if (!delayWithPowerFailCheck(AMP_UNMUTE_DELAY_MS)) {
+    return false;
+  }
+  digitalWrite(PIN_AMP_MUTE_CTRL, LOW);
+
+  return true;
+}
+
+void setup() {
+  // Preload safe output latches, then enable the pins as outputs.
+  digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+  digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
+  pinMode(PIN_AMP_STBY_CTRL, OUTPUT);
+  pinMode(PIN_AMP_MUTE_CTRL, OUTPUT);
+  digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+  digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
+
+  pinMode(PIN_LM_DATA, OUTPUT);
+  pinMode(PIN_LM_CLOCK, OUTPUT);
+  pinMode(PIN_LM_LOAD, OUTPUT);
+  pinMode(PIN_POT, INPUT);
+  pinMode(PIN_VBAT_SENSE, INPUT);
+
+  digitalWrite(PIN_LM_DATA, LOW);
+  digitalWrite(PIN_LM_CLOCK, LOW);
+  digitalWrite(PIN_LM_LOAD, HIGH);
+
+  ampStartupSequence();
+}
+
+void loop() {
+  if (isPowerFailDetected()) {
+    ampSafeOff();
+    return;
+  }
+
+  const uint16_t adcValue = readPotAverage(); // 0..1023
+  if (isPowerFailDetected()) {
+    return;
+  }
+
+  const bool adcChanged = abs((int)adcValue - (int)lastAdc) >= ADC_STEP_THRESHOLD;
+  const bool refreshDue = (millis() - lastWriteMillis) >= LM_REFRESH_MS;
+
+  // Ignore tiny ADC movement to reduce unnecessary updates.
+  if (!adcChanged && !refreshDue) {
+    delayWithPowerFailCheck(10);
+    return;
+  }
+
+  if (adcChanged) {
+    lastAdc = adcValue;
+  }
+
+  const uint8_t targetLevel = adcChanged ? levelFromAdc(adcValue) : lastLevel;
+  if (targetLevel != lastLevel) {
+    writeLM1971(targetLevel);
+    lastLevel = targetLevel;
+  } else if (refreshDue) {
+    writeLM1971(lastLevel);
+  }
+
+  delayWithPowerFailCheck(10);
+}
