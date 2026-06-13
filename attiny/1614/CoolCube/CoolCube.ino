@@ -14,8 +14,8 @@
 
   Amplifier control logic
   -----------------------
-  AMP_STBY_CTRL HIGH = standby active / amps off
-  AMP_STBY_CTRL LOW  = standby released / amps on
+  AMP_STBY_CTRL HIGH = MOSFET on, TDA_STBY_ALL pulled low, standby active / amps off
+  AMP_STBY_CTRL LOW  = MOSFET off, TDA_STBY_ALL pulled up to AMP_VBAT, standby released / amps on
   AMP_MUTE_CTRL HIGH = mute active
   AMP_MUTE_CTRL LOW  = mute released
 
@@ -36,7 +36,7 @@ const uint8_t PIN_POT        = PIN_PA1; // Pot wiper input
 const uint8_t PIN_VBAT_SENSE = PIN_PA7; // 220k/47k divider from VBAT_IN
 
 // Amplifier control pins. HIGH is the safe/off state for both signals.
-const uint8_t PIN_AMP_STBY_CTRL = PIN_PA4; // HIGH = standby active, LOW = amps on
+const uint8_t PIN_AMP_STBY_CTRL = PIN_PA4; // Inverted: HIGH = standby/off, LOW = released/on
 const uint8_t PIN_AMP_MUTE_CTRL = PIN_PA5; // HIGH = mute active, LOW = unmuted
 
 // LM1971 level constants
@@ -55,12 +55,17 @@ const uint16_t LM_REFRESH_MS = 1000;         // Periodically resend current leve
 const uint16_t AMP_STARTUP_SETTLE_MS = 800;  // Rails, DAC, VREF and analogue section settle time
 const uint16_t AMP_UNMUTE_DELAY_MS = 150;    // Delay between standby release and mute release
 
+// Set to 1 only while probing TDA_STBY_ALL with a meter/scope.
+// LOW should let TDA_STBY_ALL rise to AMP_VBAT; HIGH should pull it near 0 V.
+#define AMP_STBY_DIAGNOSTIC_MODE 0
+
 // Battery sense constants
 const uint16_t ADC_REFERENCE_MV = 5000;      // ATtiny1614 VCC / default analogRead reference
 const uint32_t VBAT_TOP_OHMS = 220000UL;     // VBAT_IN to sense node
 const uint32_t VBAT_BOTTOM_OHMS = 47000UL;   // Sense node to GND
 const uint16_t VBAT_POWER_FAIL_MV = 10500;   // Below normal 12 V operation; catches input loss
 const uint16_t VBAT_RECOVER_MV = 11500;      // Hysteresis if reused for diagnostics/recovery
+const uint16_t VBAT_STARTUP_BLANK_MS = 200;  // Let the VBAT sense RC/divider settle at boot
 const uint8_t VBAT_AVERAGE_SAMPLES = 2;
 const uint8_t VBAT_FAIL_DEBOUNCE_COUNT = 3;
 const uint16_t VBAT_POWER_FAIL_ADC =
@@ -73,6 +78,7 @@ const uint16_t VBAT_RECOVER_ADC =
 uint16_t lastAdc = 0;
 uint8_t lastLevel = LM_LEVEL_MUTE;
 uint32_t lastWriteMillis = 0;
+uint32_t powerFailCheckEnableMillis = 0;
 bool powerFailLatched = false;
 
 // Shift one 8-bit value to LM1971, MSB first.
@@ -145,8 +151,33 @@ static uint16_t readBatterySenseRaw() {
 static void ampSafeOff() {
   // Assert mute first, then standby. Both HIGH states are safe/off.
   digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
-  delayMicroseconds(200);
   digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+}
+
+static void releaseAmpStandby() {
+  // Inverted by 2N7002 low-side pull-down:
+  // LOW turns the MOSFET off, so TDA_STBY_ALL rises and the amps turn on.
+  digitalWrite(PIN_AMP_STBY_CTRL, LOW);
+}
+
+static void releaseAmpMute() {
+  digitalWrite(PIN_AMP_MUTE_CTRL, LOW);
+}
+
+static void ampStandbyDiagnosticLoop() {
+#if AMP_STBY_DIAGNOSTIC_MODE
+  digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
+
+  while (true) {
+    // Standby active/off: TDA_STBY_ALL should be near 0 V.
+    digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+    delay(2000);
+
+    // Standby released/on: TDA_STBY_ALL should rise to AMP_VBAT.
+    releaseAmpStandby();
+    delay(2000);
+  }
+#endif
 }
 
 static bool isPowerFailDetected() {
@@ -154,6 +185,12 @@ static bool isPowerFailDetected() {
 
   if (powerFailLatched) {
     return true;
+  }
+
+  // At boot the amps are already held safe. Give VBAT_SENSE time to rise
+  // before allowing a low startup reading to latch shutdown forever.
+  if ((int32_t)(millis() - powerFailCheckEnableMillis) < 0) {
+    return false;
   }
 
   const uint16_t vbatRaw = readBatterySenseRaw();
@@ -210,11 +247,11 @@ static bool ampStartupSequence() {
   }
 
   // Release standby first, then release mute after the amplifier has settled.
-  digitalWrite(PIN_AMP_STBY_CTRL, LOW);
+  releaseAmpStandby();
   if (!delayWithPowerFailCheck(AMP_UNMUTE_DELAY_MS)) {
     return false;
   }
-  digitalWrite(PIN_AMP_MUTE_CTRL, LOW);
+  releaseAmpMute();
 
   return true;
 }
@@ -238,6 +275,9 @@ void setup() {
   digitalWrite(PIN_LM_CLOCK, LOW);
   digitalWrite(PIN_LM_LOAD, HIGH);
 
+  powerFailCheckEnableMillis = millis() + VBAT_STARTUP_BLANK_MS;
+
+  ampStandbyDiagnosticLoop();
   ampStartupSequence();
 }
 
