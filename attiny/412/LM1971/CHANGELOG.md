@@ -7,3 +7,4 @@
 - Keep LM1971 LOAD high when idle and low only during a 16-bit transfer.
 - Apply the current potentiometer level immediately after the safe startup mute write.
 - Add startup settling, repeated initial writes, slower control-bit timing, averaged pot reads, and periodic level refresh for more reliable power-up.
+- Add a small ADC mute zone at the bottom of potentiometer travel so minimum volume sends true LM1971 mute instead of the quietest non-mute attenuation.
