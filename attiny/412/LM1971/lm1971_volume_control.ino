@@ -37,6 +37,7 @@ const uint8_t LM_LEVEL_MUTE        = 0x3F; // 0x3F and above select mute
 // Small filter to reduce chatter when ADC moves by 1 count
 const uint8_t ADC_STEP_THRESHOLD = 2;
 const uint8_t ADC_AVERAGE_SAMPLES = 4;       // Small startup/run-time pot smoothing
+const uint16_t ADC_MUTE_THRESHOLD = 20;       // Treat the bottom ~2% of pot travel as full mute
 const uint8_t LM_STARTUP_WRITES = 3;         // Repeat startup frames in case the LM1971 is still settling
 const uint16_t LM_STARTUP_SETTLE_MS = 150;   // Allow supply/reference rails to settle after power-up
 const uint16_t LM_REFRESH_MS = 1000;         // Periodically resend current level in case a frame was missed
@@ -81,11 +82,12 @@ static void writeLM1971Repeated(uint8_t level, uint8_t repeatCount) {
 
 static uint8_t levelFromAdc(uint16_t adcValue) {
   // Pot at minimum -> mute, otherwise 0x3E..0x00 attenuation.
-  if (adcValue <= 2) {
+  // A small mute zone covers pot end-stop tolerance and ADC/wiper noise.
+  if (adcValue <= ADC_MUTE_THRESHOLD) {
     return LM_LEVEL_MUTE;
   }
 
-  return map(adcValue, 3, 1023, LM_LEVEL_MIN_VOLUME, LM_LEVEL_MAX_VOLUME);
+  return map(adcValue, ADC_MUTE_THRESHOLD + 1, 1023, LM_LEVEL_MIN_VOLUME, LM_LEVEL_MAX_VOLUME);
 }
 
 static uint16_t readPotAverage() {
