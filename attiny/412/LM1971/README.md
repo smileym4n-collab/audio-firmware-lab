@@ -22,12 +22,13 @@ Control an LM1971 volume IC from a potentiometer.
 - Startup waits briefly for supply/reference settling and repeats initial LM1971 frames.
 - Potentiometer position is read continuously.
 - Potentiometer reads are lightly averaged to reduce startup and wiper noise.
-- Pot near minimum sends mute.
+- Bottom ~2% of potentiometer travel sends true LM1971 mute.
 - Remaining range maps to LM1971 attenuation values.
 - The current LM1971 setting is resent periodically so a missed startup frame does not leave the chip muted.
 
 ## Assumptions
 - Pot ends are connected to VCC and GND.
+- Pot minimum may not read as perfect ADC zero, so a small mute zone is used.
 - LM1971 and ATtiny412 logic levels are compatible.
 - LM1971 supply and reference rails have settled before the first unmute command is needed.
 - LM1971 commands used by this sketch:
