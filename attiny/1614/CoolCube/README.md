@@ -42,7 +42,8 @@ possible.
 - Potentiometer position is read continuously.
 - Potentiometer reads are lightly averaged to reduce startup and wiper noise.
 - Tiny ADC changes are ignored to avoid volume chatter.
-- Pot near minimum sends mute.
+- Pot readings from ADC 0..20 send true mute, covering end-stop tolerance and
+  ADC/wiper noise at minimum.
 - Remaining range maps to LM1971 attenuation values.
 - The current LM1971 setting is resent periodically so a missed frame does not
   leave the chip in the wrong state.
@@ -52,6 +53,8 @@ LM1971 command assumptions:
 - `0x00` = 0 dB (max volume)
 - `0x3E` = -62 dB (minimum non-mute)
 - `0x3F` and above = mute
+- ADC `0..20` = mute
+- ADC `21..1023` = mapped from `0x3E` to `0x00`
 - Each update sends a 16-bit serial transfer:
   - address byte `0x00`
   - attenuation byte `0x00` to `0x3F`
@@ -91,7 +94,7 @@ until reset.
 On power-fail:
 
 1. `AMP_MUTE_CTRL` is driven HIGH immediately.
-2. `AMP_STBY_CTRL` is driven HIGH after a very short delay.
+2. `AMP_STBY_CTRL` is driven HIGH.
 3. Normal volume updates stop.
 4. The amplifier remains in the safe off/muted state.
 
