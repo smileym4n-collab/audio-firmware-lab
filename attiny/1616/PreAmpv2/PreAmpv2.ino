@@ -1,11 +1,12 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.15
+  Version: 0.3.19
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
   - PGA2310 stereo volume control from analog potentiometer input
   - 16x2 I2C LCD status output (input + dB)
+  - XU208 sample-rate and mute monitoring through MCP23008 at 0x20
   - Delayed output relay enable (1 second after startup)
 
   Added in this version:
@@ -89,6 +90,17 @@ static const uint8_t INPUT_ADC_PIN    = PIN_PA7; // Input selector ladder ADC
 static const uint8_t LCD_COLS = 16;
 static const uint8_t LCD_ROWS = 2;
 
+// MCP23008 GPIO expander: A2/A1/A0 are tied LOW, so the 7-bit address is 0x20.
+static const uint8_t MCP23008_ADDRESS = 0x20;
+static const uint8_t MCP23008_IODIR   = 0x00;
+static const uint8_t MCP23008_GPPU    = 0x06;
+static const uint8_t MCP23008_GPIO    = 0x09;
+static const uint8_t MCP23008_OLAT    = 0x0A;
+
+// XU208 USB/I2S module status inputs on MCP23008 IO0..IO4.
+static const uint8_t XU208_RATE_MASK = 0x0F; // IO0..IO3: binary sample-rate code
+static const uint8_t XU208_MUTE_BIT  = 4;    // IO4: HIGH while XU208 is muting/changing rate
+
 // Output polarity controls (adjust only if hardware driver polarity differs).
 static const uint8_t RELAY_ACTIVE_STATE      = HIGH;
 static const uint8_t RELAY_INACTIVE_STATE    = LOW;
@@ -117,6 +129,10 @@ static const uint8_t INPUT_STABLE_SAMPLES_REQUIRED = 3;
 static const uint16_t OUTPUT_RELAY_DELAY_MS = 1000;
 static const uint16_t INPUT_SAMPLE_PERIOD_MS = 20;
 static const uint16_t VOLUME_SAMPLE_PERIOD_MS = 20;
+static const uint16_t EXPANDER_SAMPLE_PERIOD_MS = 10;
+static const uint8_t USB_RATE_STABLE_SAMPLES_REQUIRED = 25; // 25 * 10 ms = 250 ms
+static const uint16_t USB_RATE_DISPLAY_MS = 3000;
+static const uint16_t USB_MUTE_RELEASE_DELAY_MS = 250;
 static const uint16_t DISPLAY_PERIOD_MS = 80;
 static const uint16_t DEBUG_PRINT_PERIOD_MS = 250;
 
@@ -160,6 +176,18 @@ static const char* const INPUT_NAMES[INPUT_COUNT] = {
 
 static LiquidCrystal_I2C g_lcd(0x27, LCD_COLS, LCD_ROWS);
 static bool g_lcdReady = false;
+static uint8_t g_expanderDirection = 0xFF; // bit 1=input, bit 0=output; IO0..IO7
+static uint8_t g_expanderOutput = 0x00;
+static uint8_t g_expanderPullup = 0x00;
+static uint8_t g_expanderGpio = 0x00; // latest readback of IO0..IO7
+static bool g_expanderReady = false;
+static uint8_t g_usbRateCode = 0;
+static uint8_t g_pendingUsbRateCode = 0;
+static uint8_t g_pendingUsbRateStableCount = 0;
+static uint32_t g_usbRateDisplayUntilMs = 0;
+static uint32_t g_lastUsbMuteHighMs = 0;
+static bool g_usbMuteActive = false;
+static bool g_usbRateSupported = true;
 
 static InputSource g_selectedInput = INPUT_DAC;
 static InputSource g_pendingInput = INPUT_DAC;
@@ -173,6 +201,7 @@ static bool g_outputRelayEnabled = false;
 static uint32_t g_bootMs = 0;
 static uint32_t g_lastInputMs = 0;
 static uint32_t g_lastVolumeMs = 0;
+static uint32_t g_lastExpanderMs = 0;
 static uint32_t g_lastDisplayMs = 0;
 static uint32_t g_lastDebugMs = 0;
 
@@ -319,6 +348,167 @@ static void configureI2cForDisplay()
   Wire.begin();
   Wire.setClock(100000);
   delay(50);
+}
+
+static bool mcp23008WriteRegister(uint8_t reg, uint8_t value)
+{
+  Wire.beginTransmission(MCP23008_ADDRESS);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+static bool mcp23008ReadRegister(uint8_t reg, uint8_t* value)
+{
+  Wire.beginTransmission(MCP23008_ADDRESS);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+
+  if (Wire.requestFrom(MCP23008_ADDRESS, static_cast<uint8_t>(1)) != 1) {
+    return false;
+  }
+
+  *value = Wire.read();
+  return true;
+}
+
+static void initializeExpander()
+{
+  // Safe default for unknown external circuitry: all IO0..IO7 are inputs,
+  // internal pull-ups disabled, output latch LOW for any pin later made output.
+  g_expanderDirection = 0xFF;
+  g_expanderOutput = 0x00;
+  g_expanderPullup = 0x00;
+  g_expanderGpio = 0x00;
+
+  g_expanderReady =
+      mcp23008WriteRegister(MCP23008_OLAT, g_expanderOutput) &&
+      mcp23008WriteRegister(MCP23008_GPPU, g_expanderPullup) &&
+      mcp23008WriteRegister(MCP23008_IODIR, g_expanderDirection);
+}
+
+static void serviceExpanderIo()
+{
+  uint8_t gpioValue = 0;
+  if (mcp23008ReadRegister(MCP23008_GPIO, &gpioValue)) {
+    g_expanderGpio = gpioValue;
+    g_expanderReady = true;
+  } else {
+    g_expanderReady = false;
+  }
+}
+
+static uint8_t expanderDigitalRead(uint8_t ioPin)
+{
+  if (ioPin > 7) {
+    return LOW;
+  }
+
+  return (g_expanderGpio & (1u << ioPin)) ? HIGH : LOW;
+}
+
+static bool usbRateCodeSupported(uint8_t rateCode)
+{
+  return rateCode <= 5;
+}
+
+static const char* usbRateText(uint8_t rateCode)
+{
+  switch (rateCode) {
+    case 0: return "44.1 kHz";
+    case 1: return "48 kHz";
+    case 2: return "88.2 kHz";
+    case 3: return "96 kHz";
+    case 4: return "176.4 kHz";
+    case 5: return "192 kHz";
+    default: return "USB RATE ERROR";
+  }
+}
+
+static bool usbRateDisplayActive(uint32_t nowMs)
+{
+  return static_cast<int32_t>(g_usbRateDisplayUntilMs - nowMs) > 0;
+}
+
+static void setOutputRelayEnabled(bool enabled)
+{
+  if (g_outputRelayEnabled == enabled) {
+    return;
+  }
+
+  digitalWrite(RELAY_OUTPUT_PIN, enabled ? RELAY_ACTIVE_STATE : RELAY_INACTIVE_STATE);
+  g_outputRelayEnabled = enabled;
+}
+
+static bool outputRelayAllowed(uint32_t nowMs)
+{
+  return (nowMs - g_bootMs) >= OUTPUT_RELAY_DELAY_MS;
+}
+
+static void updateOutputRelayState(uint32_t nowMs)
+{
+  setOutputRelayEnabled(outputRelayAllowed(nowMs));
+}
+
+static bool pgaMuteRequired(uint32_t nowMs)
+{
+  if (!g_outputRelayEnabled) {
+    return true;
+  }
+
+  if (g_selectedInput == INPUT_DAC) {
+    if (!g_expanderReady || !g_usbRateSupported || g_usbMuteActive) {
+      return true;
+    }
+
+    if ((nowMs - g_lastUsbMuteHighMs) < USB_MUTE_RELEASE_DELAY_MS) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void updatePgaMuteState(uint32_t nowMs)
+{
+  digitalWrite(PGA_MUTE_PIN, pgaMuteRequired(nowMs) ? PGA_MUTE_ACTIVE_STATE : PGA_MUTE_INACTIVE_STATE);
+}
+
+static void serviceUsbStatus(uint32_t nowMs)
+{
+  if (!g_expanderReady) {
+    return;
+  }
+
+  const uint8_t rawRateCode = g_expanderGpio & XU208_RATE_MASK;
+  if (rawRateCode == g_pendingUsbRateCode) {
+    if (g_pendingUsbRateStableCount < 255) {
+      ++g_pendingUsbRateStableCount;
+    }
+  } else {
+    g_pendingUsbRateCode = rawRateCode;
+    g_pendingUsbRateStableCount = 1;
+  }
+
+  if ((g_pendingUsbRateCode != g_usbRateCode) &&
+      (g_pendingUsbRateStableCount >= USB_RATE_STABLE_SAMPLES_REQUIRED)) {
+    g_usbRateCode = g_pendingUsbRateCode;
+    g_usbRateSupported = usbRateCodeSupported(g_usbRateCode);
+    if (g_selectedInput == INPUT_DAC) {
+      g_usbRateDisplayUntilMs = nowMs + USB_RATE_DISPLAY_MS;
+    }
+  } else {
+    g_usbRateSupported = usbRateCodeSupported(g_usbRateCode);
+  }
+
+  if (expanderDigitalRead(XU208_MUTE_BIT) == HIGH) {
+    g_lastUsbMuteHighMs = nowMs;
+    g_usbMuteActive = true;
+  } else if ((nowMs - g_lastUsbMuteHighMs) >= USB_MUTE_RELEASE_DELAY_MS) {
+    g_usbMuteActive = false;
+  }
 }
 
 static uint8_t dbToPgaCode(float db)
@@ -714,7 +904,6 @@ static void updateDisplay()
   lastPageA = showPageA;
 #else
   static InputSource lastInputShown = INPUT_COUNT;
-  static int16_t lastDbTenthsShown = 32767;
 
   if (g_selectedInput != lastInputShown) {
     char line[LCD_COLS + 1];
@@ -723,19 +912,23 @@ static void updateDisplay()
     lastInputShown = g_selectedInput;
   }
 
-  const int16_t dbTenths = static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5));
-  if (dbTenths != lastDbTenthsShown) {
+  char line[LCD_COLS + 1];
+  if (g_selectedInput == INPUT_DAC && !g_expanderReady) {
+    makeCenteredLcdLine("USB IO ERROR", line);
+  } else if (g_selectedInput == INPUT_DAC && !g_usbRateSupported) {
+    makeCenteredLcdLine("UNSUPPORTED RATE", line);
+  } else if (g_selectedInput == INPUT_DAC && usbRateDisplayActive(millis())) {
+    makeCenteredLcdLine(usbRateText(g_usbRateCode), line);
+  } else {
+    const int16_t dbTenths = static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5));
     char dbText[8];
     formatTenthsDb(dbTenths, dbText, sizeof(dbText));
 
     char volumeText[12];
     snprintf(volumeText, sizeof(volumeText), "%s dB", dbText);
-
-    char line[LCD_COLS + 1];
     makeCenteredLcdLine(volumeText, line);
-    writeLcdLineChanged(1, line);
-    lastDbTenthsShown = dbTenths;
   }
+  writeLcdLineChanged(1, line);
 #endif
 }
 
@@ -798,6 +991,9 @@ void setup()
   configureI2cForDisplay();
   delay(20);
   initializeLcd();
+  initializeExpander();
+  DBG_PRINT(F("MCP23008 "));
+  DBG_PRINTLN(g_expanderReady ? F("ready") : F("not found"));
 
   // Safe initial input and low volume before unmuting/output enable.
   g_selectedInput = INPUT_DAC;
@@ -809,6 +1005,8 @@ void setup()
   g_bootMs = millis();
   g_lastVolAdc = readAdcAveraged(VOL_ADC_PIN, 8);
   g_motorTargetAdc = g_lastVolAdc;
+  serviceExpanderIo();
+  serviceUsbStatus(g_bootMs);
 
   // Library-based IR receiver initialization.
   // This replaces loop-time edge polling to improve decode reliability.
@@ -819,13 +1017,6 @@ void loop()
 {
   const uint32_t nowMs = millis();
   serviceIrReceiver();
-
-  // Delayed output relay turn-on.
-  if (!g_outputRelayEnabled && (nowMs - g_bootMs >= OUTPUT_RELAY_DELAY_MS)) {
-    digitalWrite(RELAY_OUTPUT_PIN, RELAY_ACTIVE_STATE);
-    digitalWrite(PGA_MUTE_PIN, PGA_MUTE_INACTIVE_STATE); // unmute after relay engages
-    g_outputRelayEnabled = true;
-  }
 
   // Input ladder sampling + debounce.
   if (nowMs - g_lastInputMs >= INPUT_SAMPLE_PERIOD_MS) {
@@ -862,6 +1053,15 @@ void loop()
     setPgaVolumeDb(requestedDb);
   }
 
+  // MCP23008 IO0..IO7 readback. Pins default to inputs until explicitly changed.
+  if (nowMs - g_lastExpanderMs >= EXPANDER_SAMPLE_PERIOD_MS) {
+    g_lastExpanderMs = nowMs;
+    serviceExpanderIo();
+    serviceUsbStatus(nowMs);
+  }
+
+  updateOutputRelayState(nowMs);
+  updatePgaMuteState(nowMs);
   serviceMotorControl(nowMs);
 
   // LCD update task.
@@ -881,7 +1081,10 @@ void loop()
     DBG_PRINT(F(" pgaDb="));
     DBG_PRINT(g_pgaDb, 1);
     DBG_PRINT(F(" code="));
-    DBG_PRINTLN(g_pgaCode);
+    DBG_PRINT(g_pgaCode);
+    DBG_PRINT(F(" mcp="));
+    DBG_PRINT(g_expanderReady ? F("ok ") : F("miss "));
+    DBG_PRINTLN(g_expanderGpio, HEX);
   }
 
 }

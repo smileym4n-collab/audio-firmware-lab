@@ -1,8 +1,8 @@
 # PreAmpv2
 
-Version: 0.3.15
+Version: 0.3.19
 
-Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, and 16x2 I2C LCD status.
+Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, XU208 USB/I2S status monitoring, and 16x2 I2C LCD status.
 
 ## MCU / framework
 - MCU: ATtiny1616
@@ -27,6 +27,13 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - `PB1`  - Volume ADC input (`VOL IN`)
 - `PA7`  - Input select ADC input (`INPUT IN`)
 
+## I2C devices
+- LCD: `0x27`
+- MCP23008 GPIO expander: `0x20`
+  - IO0..IO3: XU208 sample-rate code
+  - IO4: XU208 mute/status output, HIGH while changing sample rate
+  - IO5..IO7: currently unused inputs
+
 ## Implemented behavior
 - 4-way input select from resistor ladder on `PA7`:
   - ~0.58V -> DAC
@@ -36,9 +43,12 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - Midpoint boundary decoding with sample debounce to reduce relay chatter.
 - Exactly one input relay is energized at a time.
 - Output relay (`PC3`) remains OFF on startup and enables after 1 second.
+- On DAC input, the PGA2310 mute is asserted if the MCP23008 is missing, the XU208 mute line is HIGH, or the detected USB sample rate is unsupported.
 - PGA2310 stereo volume control from `PB1` potentiometer ADC.
 - Volume command and display are capped at `+10.0 dB`.
 - 16x2 LCD displays active input and actual dB sent to PGA.
+- On DAC input, a USB sample-rate change temporarily replaces the dB display for 3 seconds.
+- USB sample rates above 192 kHz are treated as unsupported and keep the PGA2310 muted.
 - Apple IR volume control on `PA6`:
   - Protocol: `Apple`
   - Address: `0xAA`
@@ -94,6 +104,8 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - With `PREAMPV2_LCD_DEBUG = 0`, the display shows:
   - Top row: selected input (centered)
   - Bottom row: volume in dB (centered)
+  - On DAC sample-rate change: detected USB rate for 3 seconds
+  - On unsupported DAC rate: `UNSUPPORTED RATE`
   - No additional labels/text
 
 ## Volume mapping strategy
