@@ -42,8 +42,8 @@ possible.
 - Potentiometer position is read continuously.
 - Potentiometer reads are lightly averaged to reduce startup and wiper noise.
 - Tiny ADC changes are ignored to avoid volume chatter.
-- Pot readings from ADC 0..20 send true mute, covering end-stop tolerance and
-  ADC/wiper noise at minimum.
+- Pot readings from ADC 0..40 send true mute, with release delayed until ADC 56
+  to cover end-stop tolerance and ADC/wiper noise at minimum.
 - Remaining range maps to LM1971 attenuation values.
 - The current LM1971 setting is resent periodically so a missed frame does not
   leave the chip in the wrong state.
@@ -53,8 +53,9 @@ LM1971 command assumptions:
 - `0x00` = 0 dB (max volume)
 - `0x3E` = -62 dB (minimum non-mute)
 - `0x3F` and above = mute
-- ADC `0..20` = mute
-- ADC `21..1023` = mapped from `0x3E` to `0x00`
+- ADC `0..40` = mute
+- ADC `41..56` = stay muted if already muted
+- ADC `57..1023` = mapped from `0x3E` to `0x00`
 - Each update sends a 16-bit serial transfer:
   - address byte `0x00`
   - attenuation byte `0x00` to `0x3F`
@@ -69,8 +70,10 @@ LM1971 command assumptions:
 6. Write LM1971 mute.
 7. Read the pot and set the initial LM1971 level.
 8. Release standby by driving `AMP_STBY_CTRL` LOW.
-9. Wait about 150 ms.
-10. Release mute by driving `AMP_MUTE_CTRL` LOW.
+9. Wait about 250 ms.
+10. Write the startup LM1971 level while amplifier mute is still active.
+11. Wait about 20 ms for the LM1971 level to settle.
+12. Release mute by driving `AMP_MUTE_CTRL` LOW.
 
 ## Battery / power-fail sense
 `VBAT_SENSE` is read through this divider:

@@ -47,14 +47,16 @@ const uint8_t LM_LEVEL_MUTE        = 0x3F; // 0x3F and above select mute
 
 // Behaviour copied from the ATtiny412 firmware.
 const uint8_t ADC_STEP_THRESHOLD = 2;
-const uint8_t ADC_AVERAGE_SAMPLES = 4;       // Small startup/run-time pot smoothing
-const uint16_t ADC_MUTE_THRESHOLD = 20;       // Treat the bottom ~2% of pot travel as full mute
-const uint8_t LM_STARTUP_WRITES = 3;         // Repeat startup frames in case the LM1971 is still settling
-const uint16_t LM_REFRESH_MS = 1000;         // Periodically resend current level in case a frame was missed
+const uint8_t ADC_AVERAGE_SAMPLES = 4;          // Small startup/run-time pot smoothing
+const uint16_t ADC_MUTE_ENTER_THRESHOLD = 40;   // Bottom ~4% of pot travel is forced mute
+const uint16_t ADC_MUTE_EXIT_THRESHOLD = 56;    // Small hysteresis prevents chatter near minimum
+const uint8_t LM_STARTUP_WRITES = 3;            // Repeat startup frames in case the LM1971 is still settling
+const uint16_t LM_REFRESH_MS = 1000;            // Periodically resend current level in case a frame was missed
 
 // Startup sequencing
-const uint16_t AMP_STARTUP_SETTLE_MS = 800;  // Rails, DAC, VREF and analogue section settle time
-const uint16_t AMP_UNMUTE_DELAY_MS = 150;    // Delay between standby release and mute release
+const uint16_t AMP_STARTUP_SETTLE_MS = 800;     // Rails, DAC, VREF and analogue section settle time
+const uint16_t AMP_UNMUTE_DELAY_MS = 250;       // Delay between standby release and mute release
+const uint16_t LM_LEVEL_APPLY_DELAY_MS = 20;    // Let the LM1971 settle before releasing amp mute
 
 // Set to 1 only while probing TDA_STBY_ALL with a meter/scope.
 // LOW should let TDA_STBY_ALL rise to AMP_VBAT; HIGH should pull it near 0 V.
@@ -116,14 +118,18 @@ static void writeLM1971Repeated(uint8_t level, uint8_t repeatCount) {
   }
 }
 
-static uint8_t levelFromAdc(uint16_t adcValue) {
+static uint8_t levelFromAdc(uint16_t adcValue, uint8_t currentLevel) {
   // Pot at minimum -> mute, otherwise 0x3E..0x00 attenuation.
-  // A small mute zone covers pot end-stop tolerance and ADC/wiper noise.
-  if (adcValue <= ADC_MUTE_THRESHOLD) {
+  // A wider mute zone plus hysteresis covers pot end-stop tolerance and wiper noise.
+  if (adcValue <= ADC_MUTE_ENTER_THRESHOLD) {
     return LM_LEVEL_MUTE;
   }
 
-  return map(adcValue, ADC_MUTE_THRESHOLD + 1, 1023,
+  if ((currentLevel == LM_LEVEL_MUTE) && (adcValue <= ADC_MUTE_EXIT_THRESHOLD)) {
+    return LM_LEVEL_MUTE;
+  }
+
+  return map(adcValue, ADC_MUTE_EXIT_THRESHOLD + 1, 1023,
              LM_LEVEL_MIN_VOLUME, LM_LEVEL_MAX_VOLUME);
 }
 
@@ -243,17 +249,21 @@ static bool ampStartupSequence() {
     return false;
   }
 
-  lastLevel = levelFromAdc(lastAdc);
-  writeLM1971Repeated(lastLevel, LM_STARTUP_WRITES);
-  if (isPowerFailDetected()) {
-    return false;
-  }
+  const uint8_t startupLevel = levelFromAdc(lastAdc, LM_LEVEL_MUTE);
 
-  // Release standby first, then release mute after the amplifier has settled.
+  // Keep the amplifier muted while standby is released and the LM1971 is loaded
+  // with the final startup level.
   releaseAmpStandby();
   if (!delayWithPowerFailCheck(AMP_UNMUTE_DELAY_MS)) {
     return false;
   }
+
+  writeLM1971Repeated(startupLevel, LM_STARTUP_WRITES);
+  lastLevel = startupLevel;
+  if (!delayWithPowerFailCheck(LM_LEVEL_APPLY_DELAY_MS)) {
+    return false;
+  }
+
   releaseAmpMute();
 
   return true;
@@ -308,7 +318,7 @@ void loop() {
     lastAdc = adcValue;
   }
 
-  const uint8_t targetLevel = adcChanged ? levelFromAdc(adcValue) : lastLevel;
+  const uint8_t targetLevel = adcChanged ? levelFromAdc(adcValue, lastLevel) : lastLevel;
   if (targetLevel != lastLevel) {
     writeLM1971(targetLevel);
     lastLevel = targetLevel;
