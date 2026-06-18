@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.19
+  Version: 0.3.20
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -290,6 +290,23 @@ static uint16_t readAdcAveraged(uint8_t pin, uint8_t samples)
   return static_cast<uint16_t>(sum / samples);
 }
 
+static void releaseInputSelectAdcPin()
+{
+  // PA7 must remain a high-impedance ADC input. Keep the output latch HIGH so
+  // an accidental output-enable cannot clamp the input ladder to ground.
+  PORTA.DIRCLR = PIN7_bm;
+  PORTA.OUTSET = PIN7_bm;
+  PORTA.PIN7CTRL = (PORTA.PIN7CTRL & ~(PORT_PULLUPEN_bm | PORT_ISC_gm)) | PORT_ISC_INPUT_DISABLE_gc;
+}
+
+static uint16_t readInputSelectAdcAveraged(uint8_t samples)
+{
+  releaseInputSelectAdcPin();
+  const uint16_t adcValue = readAdcAveraged(INPUT_ADC_PIN, samples);
+  releaseInputSelectAdcPin();
+  return adcValue;
+}
+
 static void motorStop()
 {
   digitalWrite(MOTOR_1_PIN, LOW);
@@ -338,8 +355,7 @@ static void configureAnalogInputs()
   PORTB.PIN1CTRL &= ~PORT_PULLUPEN_bm;
   PORTB.PIN1CTRL = (PORTB.PIN1CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
 
-  PORTA.PIN7CTRL &= ~PORT_PULLUPEN_bm;
-  PORTA.PIN7CTRL = (PORTA.PIN7CTRL & ~PORT_ISC_gm) | PORT_ISC_INPUT_DISABLE_gc;
+  releaseInputSelectAdcPin();
 }
 
 static void configureI2cForDisplay()
@@ -1011,6 +1027,7 @@ void setup()
   // Library-based IR receiver initialization.
   // This replaces loop-time edge polling to improve decode reliability.
   IrReceiver.begin(IR_PIN, DISABLE_LED_FEEDBACK);
+  releaseInputSelectAdcPin();
 }
 
 void loop()
@@ -1022,7 +1039,7 @@ void loop()
   if (nowMs - g_lastInputMs >= INPUT_SAMPLE_PERIOD_MS) {
     g_lastInputMs = nowMs;
 
-    const uint16_t inputAdc = readAdcAveraged(INPUT_ADC_PIN, 8);
+    const uint16_t inputAdc = readInputSelectAdcAveraged(8);
     g_lastInputAdc = inputAdc;
     const InputSource candidate = readSelectedInput(inputAdc);
     g_lastInputCandidate = candidate;
