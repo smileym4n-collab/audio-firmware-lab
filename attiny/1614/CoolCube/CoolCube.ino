@@ -1,5 +1,6 @@
 /*
   Project: CoolCube LM1971 volume and TDA7396 amplifier control
+  Version: 0.1.1
   Target:  ATtiny1614 (megaTinyCore)
 
   Pin map from PINOUT.md
@@ -57,6 +58,7 @@ const uint16_t LM_REFRESH_MS = 1000;            // Periodically resend current l
 const uint16_t AMP_STARTUP_SETTLE_MS = 800;     // Rails, DAC, VREF and analogue section settle time
 const uint16_t AMP_UNMUTE_DELAY_MS = 250;       // Delay between standby release and mute release
 const uint16_t LM_LEVEL_APPLY_DELAY_MS = 20;    // Let the LM1971 settle before releasing amp mute
+const uint16_t AMP_SHUTDOWN_STANDBY_DELAY_MS = 40; // Hold mute briefly before forcing standby on power loss
 
 // Set to 1 only while probing TDA_STBY_ALL with a meter/scope.
 // LOW should let TDA_STBY_ALL rise to AMP_VBAT; HIGH should pull it near 0 V.
@@ -83,6 +85,7 @@ uint8_t lastLevel = LM_LEVEL_MUTE;
 uint32_t lastWriteMillis = 0;
 uint32_t powerFailCheckEnableMillis = 0;
 bool powerFailLatched = false;
+bool shutdownSequenceApplied = false;
 
 // Shift one 8-bit value to LM1971, MSB first.
 static void shiftLM1971Byte(uint8_t value) {
@@ -163,6 +166,21 @@ static void ampSafeOff() {
   digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
 }
 
+static void ampShutdownSequence() {
+  if (shutdownSequenceApplied) {
+    return;
+  }
+
+  shutdownSequenceApplied = true;
+
+  // Quiet the volume IC first, then hold amp mute briefly before standby.
+  writeLM1971Repeated(LM_LEVEL_MUTE, LM_STARTUP_WRITES);
+  digitalWrite(PIN_AMP_MUTE_CTRL, HIGH);
+  delay(AMP_SHUTDOWN_STANDBY_DELAY_MS);
+  digitalWrite(PIN_AMP_STBY_CTRL, HIGH);
+  lastLevel = LM_LEVEL_MUTE;
+}
+
 static void releaseAmpStandby() {
   // Inverted by 2N7002 low-side pull-down:
   // LOW turns the MOSFET off, so TDA_STBY_ALL rises and the amps turn on.
@@ -213,7 +231,7 @@ static bool isPowerFailDetected() {
 
   if (lowCount >= VBAT_FAIL_DEBOUNCE_COUNT) {
     powerFailLatched = true;
-    ampSafeOff();
+    ampShutdownSequence();
     return true;
   }
 
@@ -296,7 +314,7 @@ void setup() {
 
 void loop() {
   if (isPowerFailDetected()) {
-    ampSafeOff();
+    ampShutdownSequence();
     return;
   }
 

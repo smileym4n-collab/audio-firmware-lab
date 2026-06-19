@@ -96,10 +96,11 @@ until reset.
 
 On power-fail:
 
-1. `AMP_MUTE_CTRL` is driven HIGH immediately.
-2. `AMP_STBY_CTRL` is driven HIGH.
-3. Normal volume updates stop.
-4. The amplifier remains in the safe off/muted state.
+1. The LM1971 is commanded to mute immediately.
+2. `AMP_MUTE_CTRL` is driven HIGH.
+3. After about 40 ms, `AMP_STBY_CTRL` is driven HIGH.
+4. Normal volume updates stop.
+5. The amplifier remains in the safe off/muted state.
 
 ## Assumptions
 - Pot ends are connected to VCC and GND.
