@@ -23,7 +23,7 @@ amplifier starts in the safe off/muted state.
 ## Analogue inputs
 
 - PA1 expects the volume pot ends at VCC and GND.
-- PA1 ADC readings from 0..40 are treated as true LM1971 mute, with release
-  delayed until readings rise above 56.
+- PA1 ADC readings from 0..120 are treated as true LM1971 mute, with release
+  delayed until readings rise above 150.
 - PA7 reads `VBAT_IN` through a 220k / 47k divider with 100nF from the sense
   node to GND.
