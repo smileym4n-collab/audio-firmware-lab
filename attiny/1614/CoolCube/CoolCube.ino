@@ -55,9 +55,9 @@ const uint8_t LM_STARTUP_WRITES = 3;            // Repeat startup frames in case
 const uint16_t LM_REFRESH_MS = 1000;            // Periodically resend current level in case a frame was missed
 
 // Startup sequencing
-const uint16_t AMP_STARTUP_SETTLE_MS = 2500;     // Rails, DAC, VREF and analogue section settle time
-const uint16_t AMP_UNMUTE_DELAY_MS = 1000;      // Delay between standby release and mute release
-const uint16_t POST_TDA_UNMUTE_DELAY_MS = 750;  // Keep LM1971 muted after TDA mute release
+const uint16_t AMP_STARTUP_SETTLE_MS = 5000;     // Rails, DAC, VREF and analogue section settle time
+const uint16_t AMP_UNMUTE_DELAY_MS = 2000;      // Delay between standby release and mute release
+const uint16_t POST_TDA_UNMUTE_DELAY_MS = 1500; // Keep LM1971 muted after TDA mute release
 const uint16_t LM_RAMP_STEP_MS = 20;            // LM1971 ramp step delay
 const uint16_t AMP_SHUTDOWN_STANDBY_DELAY_MS = 50; // Tune 0, 20, 50, 100 ms for mute lead time
 
