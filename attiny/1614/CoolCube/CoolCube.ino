@@ -55,11 +55,14 @@ const uint8_t LM_STARTUP_WRITES = 3;            // Repeat startup frames in case
 const uint16_t LM_REFRESH_MS = 1000;            // Periodically resend current level in case a frame was missed
 
 // Startup sequencing
-const uint16_t AMP_STARTUP_SETTLE_MS = 2000;     // Rails, DAC, VREF and analogue section settle time
-const uint16_t AMP_UNMUTE_DELAY_MS = 500;       // Delay between standby release and mute release
-const uint16_t POST_TDA_UNMUTE_DELAY_MS = 250;  // Keep LM1971 muted after TDA mute release
-const uint16_t LM_RAMP_STEP_MS = 15;            // LM1971 ramp step delay; tune 10..20 ms
+const uint16_t AMP_STARTUP_SETTLE_MS = 2500;     // Rails, DAC, VREF and analogue section settle time
+const uint16_t AMP_UNMUTE_DELAY_MS = 1000;      // Delay between standby release and mute release
+const uint16_t POST_TDA_UNMUTE_DELAY_MS = 750;  // Keep LM1971 muted after TDA mute release
+const uint16_t LM_RAMP_STEP_MS = 20;            // LM1971 ramp step delay
 const uint16_t AMP_SHUTDOWN_STANDBY_DELAY_MS = 50; // Tune 0, 20, 50, 100 ms for mute lead time
+
+// Set to 1 to run TDA startup normally but leave the LM1971 at true mute.
+#define STARTUP_KEEP_LM1971_MUTED_FOR_TEST 0
 
 // Set to 1 only while probing TDA_STBY_ALL with a meter/scope.
 // LOW should let TDA_STBY_ALL rise to AMP_VBAT; HIGH should pull it near 0 V.
@@ -89,6 +92,8 @@ uint32_t powerFailCheckEnableMillis = 0;
 bool powerFailLatched = false;
 bool shutdownSequenceApplied = false;
 
+static bool delayWithPowerFailCheck(uint16_t delayMs);
+
 // Shift one 8-bit value to LM1971, MSB first.
 static void shiftLM1971Byte(uint8_t value) {
   for (int8_t bitIndex = 7; bitIndex >= 0; --bitIndex) {
@@ -116,11 +121,15 @@ static void writeLM1971(uint8_t level) {
   lastWriteMillis = millis();
 }
 
-static void writeLM1971Repeated(uint8_t level, uint8_t repeatCount) {
+static bool writeLM1971Repeated(uint8_t level, uint8_t repeatCount) {
   for (uint8_t count = 0; count < repeatCount; ++count) {
     writeLM1971(level);
-    delay(2);
+    if (!delayWithPowerFailCheck(2)) {
+      return false;
+    }
   }
+
+  return true;
 }
 
 static uint8_t levelFromAdc(uint16_t adcValue, uint8_t currentLevel) {
@@ -306,8 +315,10 @@ static bool rampLM1971ToLevel(uint8_t targetLevel) {
 
 static bool ampStartupSequence() {
   // Keep the LM1971 muted while the supplies and analogue stages settle.
-  writeLM1971Repeated(LM_LEVEL_MUTE, LM_STARTUP_WRITES);
   lastLevel = LM_LEVEL_MUTE;
+  if (!writeLM1971Repeated(LM_LEVEL_MUTE, LM_STARTUP_WRITES)) {
+    return false;
+  }
 
   if (!delayWithPowerFailCheck(AMP_STARTUP_SETTLE_MS)) {
     return false;
@@ -331,7 +342,13 @@ static bool ampStartupSequence() {
     return false;
   }
 
+#if STARTUP_KEEP_LM1971_MUTED_FOR_TEST
+  writeLM1971(LM_LEVEL_MUTE);
+  lastLevel = LM_LEVEL_MUTE;
+  return !isPowerFailDetected();
+#else
   return rampLM1971ToLevel(startupLevel);
+#endif
 }
 
 void setup() {
@@ -363,6 +380,15 @@ void loop() {
     ampShutdownSequence();
     return;
   }
+
+#if STARTUP_KEEP_LM1971_MUTED_FOR_TEST
+  if ((millis() - lastWriteMillis) >= LM_REFRESH_MS) {
+    writeLM1971(LM_LEVEL_MUTE);
+    lastLevel = LM_LEVEL_MUTE;
+  }
+  delayWithPowerFailCheck(10);
+  return;
+#endif
 
   const uint16_t adcValue = readPotAverage(); // 0..1023
   if (isPowerFailDetected()) {
