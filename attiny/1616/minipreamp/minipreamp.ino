@@ -1,6 +1,6 @@
 /*
   minipreamp.ino - ATtiny1616 mini preamp controller
-  Version: 0.5.0
+  Version: 0.5.1
 
   Controls:
   - PGA2311 volume IC (stereo, capped at 0 dB max gain)
@@ -30,8 +30,11 @@ static const uint8_t TLC_LE_PIN      = PIN_PC2;  // TLC5916 latch enable
 static const uint8_t PGA_CS_PIN      = PIN_PC3;  // PGA2311 chip select (active low)
 
 // PGA2311 limits
-static const uint8_t PGA_CODE_MIN = 0x00;  // -95.5 dB
-static const uint8_t PGA_CODE_MAX = 0xCF;  // 0.0 dB (capped, no positive gain)
+static const uint8_t PGA_CODE_MUTE = 0x00;
+static const uint8_t PGA_CODE_MIN  = 0x01;  // -95.5 dB
+static const uint8_t PGA_CODE_MAX  = 0xC0;  // 0.0 dB (capped, no positive gain)
+static const float PGA_MIN_DB = -95.5f;
+static const float PGA_MAX_DB = 0.0f;
 
 // TLC5916 LED bits (Q0 = input 1 LED, Q1 = input 2 LED)
 static const uint8_t LED_INPUT1_MASK = 0x01;
@@ -53,12 +56,6 @@ static const uint8_t AS1115_REG_DISPLAY_TEST = 0x0F;
 // I2C software timing
 static const uint8_t SOFT_I2C_DELAY_US = 5;
 
-// Volume-curve tuning
-// 0   = fully linear pot-to-volume mapping
-// 100 = fully log-like (audio taper) mapping
-// Values between 0..100 blend between linear and log-like responses.
-static const uint8_t VOLUME_CURVE_BLEND_PERCENT = 60;
-
 // Poll/update timing
 static const uint16_t INPUT_POLL_MS  = 10;
 static const uint16_t VOLUME_POLL_MS = 10;
@@ -74,7 +71,7 @@ static const uint8_t VOLUME_FAULT_TRIP_COUNT = 12;
 static const uint8_t VOLUME_FAULT_CLEAR_ACCEPT_COUNT = 24;
 
 static bool g_input2Selected = false;
-static uint8_t g_lastPgaCode = PGA_CODE_MIN;
+static uint8_t g_lastPgaCode = PGA_CODE_MUTE;
 static uint8_t g_lastVolumePercent = 0xFF;
 static uint32_t g_lastInputPollMs = 0;
 static uint32_t g_lastVolumePollMs = 0;
@@ -234,25 +231,28 @@ static void writePgaVolume(uint8_t leftCode, uint8_t rightCode)
   digitalWrite(PGA_CS_PIN, HIGH);  // Latch PGA2311 frame
 }
 
-static uint8_t volumeAdcToPgaCode(uint16_t adc)
+static float volumeAdcToDb(uint16_t adcValue)
 {
-  if (adc > 1023u) {
-    adc = 1023u;
+  if (adcValue > 1023u) {
+    adcValue = 1023u;
   }
 
-  // Linear curve in 10-bit ADC domain.
-  const uint16_t linearCurve = adc;
+  const float normalized = static_cast<float>(adcValue) / 1023.0f;
+  return PGA_MIN_DB + normalized * (PGA_MAX_DB - PGA_MIN_DB);
+}
 
-  // Log-like curve using a square law (audio taper style) in 10-bit ADC domain.
-  const uint16_t logLikeCurve = static_cast<uint16_t>((static_cast<uint32_t>(adc) * adc) / 1023u);
+static uint8_t volumeAdcToPgaCode(uint16_t adcValue)
+{
+  const float volumeDb = volumeAdcToDb(adcValue);
+  if (volumeDb <= PGA_MIN_DB) {
+    return PGA_CODE_MIN;
+  }
+  if (volumeDb >= PGA_MAX_DB) {
+    return PGA_CODE_MAX;
+  }
 
-  const uint8_t blend = (VOLUME_CURVE_BLEND_PERCENT > 100u) ? 100u : VOLUME_CURVE_BLEND_PERCENT;
-  const uint16_t blendedCurve = static_cast<uint16_t>(
-    (static_cast<uint32_t>(linearCurve) * (100u - blend) + static_cast<uint32_t>(logLikeCurve) * blend) / 100u
-  );
-
-  const uint32_t scaled = (static_cast<uint32_t>(blendedCurve) * PGA_CODE_MAX) / 1023u;
-  return static_cast<uint8_t>(scaled + PGA_CODE_MIN);
+  const float code = PGA_CODE_MIN + ((volumeDb - PGA_MIN_DB) * 2.0f);
+  return static_cast<uint8_t>(code + 0.5f);
 }
 
 

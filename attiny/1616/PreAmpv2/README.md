@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.19
+Version: 0.3.23
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, XU208 USB/I2S status monitoring, and 16x2 I2C LCD status.
 
@@ -109,8 +109,10 @@ Wire.pins(PIN_PA1, PIN_PA2);
   - No additional labels/text
 
 ## Volume mapping strategy
-- Pot ADC (`0..1023`) uses a 3-segment taper to improve low/mid listening control with a linear pot.
+- Pot ADC (`0..1023`) maps linearly across the PGA2310 dB attenuation range, giving roughly 50% of the range at half pot travel.
+- Mapping in dB retains a natural perceived-loudness progression without bunching most of the increase near the top of the pot.
 - Result is quantized to PGA2310 half-dB steps (device-native coding).
+- Full volume sends PGA2310 code `212`, which is `+10.0 dB`.
 - Firmware displays the **actual quantized dB value** sent to the PGA2310.
 
 ## Arduino IDE dependencies

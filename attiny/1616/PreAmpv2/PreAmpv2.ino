@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.20
+  Version: 0.3.23
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -108,7 +108,8 @@ static const uint8_t PGA_MUTE_ACTIVE_STATE   = LOW;  // Confirmed active LOW.
 static const uint8_t PGA_MUTE_INACTIVE_STATE = HIGH; // Confirmed inactive HIGH.
 
 // PGA2310 gain range and project cap.
-// PGA2310 uses 0.5 dB steps, code 0 = -95.5 dB, code 255 = +31.5 dB.
+// PGA2310 uses 0.5 dB steps: code 0 = mute, code 1 = -95.5 dB,
+// code 192 = 0 dB, and code 255 = +31.5 dB.
 // This project limits control to +10.0 dB max.
 static const float PGA_MIN_DB = -95.5f;
 static const float PGA_MAX_DB = +10.0f;
@@ -536,7 +537,7 @@ static uint8_t dbToPgaCode(float db)
     db = PGA_MAX_DB;
   }
 
-  const float codeFloat = (db - PGA_MIN_DB) * 2.0f; // 0.5 dB steps
+  const float codeFloat = (db + 96.0f) * 2.0f; // code 192 = 0 dB
   int16_t codeInt = static_cast<int16_t>(codeFloat + 0.5f);
   if (codeInt < 0) {
     codeInt = 0;
@@ -550,36 +551,16 @@ static uint8_t dbToPgaCode(float db)
 
 static float pgaCodeToDb(uint8_t code)
 {
-  return PGA_MIN_DB + (0.5f * static_cast<float>(code));
+  return -96.0f + (0.5f * static_cast<float>(code));
 }
 
 static float volumeAdcToRequestedDb(uint16_t adcValue)
 {
-  // Pot taper strategy for better listening feel with linear 10k pot:
-  // - Segment A (0..70%): expands low-to-mid listening range (-95.5..-20 dB)
-  //   using a concave curve to avoid bunching useful control near the top.
-  // - Segment B (70..95%): smoother progression through common listening
-  //   levels (-20..0 dB).
-  // - Segment C (95..100%): reserves top travel for 0..+10 dB headroom.
-  // Keep these constants readable/tunable for hardware listening tests.
+  // Map pot travel linearly across the attenuation range. Because the result is
+  // in dB, the control retains a natural perceived-loudness progression while
+  // avoiding the previous concentration of volume near the top of the pot.
   const float normalized = static_cast<float>(adcValue) / 1023.0f;
-
-  const float splitA = 0.70f;
-  const float splitB = 0.95f;
-
-  if (normalized <= splitA) {
-    const float x = normalized / splitA;
-    const float shaped = x * x; // expanded low-level control
-    return PGA_MIN_DB + shaped * (-20.0f - PGA_MIN_DB);
-  }
-
-  if (normalized <= splitB) {
-    const float x = (normalized - splitA) / (splitB - splitA);
-    return -20.0f + x * (0.0f - (-20.0f));
-  }
-
-  const float x = (normalized - splitB) / (1.0f - splitB);
-  return 0.0f + x * (PGA_MAX_DB - 0.0f);
+  return PGA_MIN_DB + normalized * (PGA_MAX_DB - PGA_MIN_DB);
 }
 
 static void pgaWriteStereo(uint8_t code)
@@ -889,7 +870,7 @@ static void updateDisplay()
     char volText[8];
     char dbText[8];
     formatAdcVoltage(g_lastVolAdc, volText, sizeof(volText));
-    formatTenthsDb(static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5)), dbText, sizeof(dbText));
+    formatTenthsDb(static_cast<int16_t>(-960 + (static_cast<int16_t>(g_pgaCode) * 5)), dbText, sizeof(dbText));
 
     snprintf(line0, sizeof(line0), "VOL:%4u %s",
              g_lastVolAdc,
@@ -936,7 +917,7 @@ static void updateDisplay()
   } else if (g_selectedInput == INPUT_DAC && usbRateDisplayActive(millis())) {
     makeCenteredLcdLine(usbRateText(g_usbRateCode), line);
   } else {
-    const int16_t dbTenths = static_cast<int16_t>(-955 + (static_cast<int16_t>(g_pgaCode) * 5));
+    const int16_t dbTenths = static_cast<int16_t>(-960 + (static_cast<int16_t>(g_pgaCode) * 5));
     char dbText[8];
     formatTenthsDb(dbTenths, dbText, sizeof(dbText));
 

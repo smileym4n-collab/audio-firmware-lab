@@ -1,6 +1,6 @@
 # minipreamp
 
-Version: 0.5.0
+Version: 0.5.1
 
 ATtiny1616 mini preamp controller sketch for megaTinyCore.
 
@@ -27,13 +27,11 @@ ATtiny1616 mini preamp controller sketch for megaTinyCore.
 - Reads `IN_SEL_ADC` as a digital level:
   - LOW selects input 1 (`RELAY1` and `RELAY1_PAIR` active, `RELAY2` and `RELAY2_PAIR` inactive)
   - HIGH selects input 2 (`RELAY2` and `RELAY2_PAIR` active, `RELAY1` and `RELAY1_PAIR` inactive)
-- Reads `VOL_ADC` and maps it to PGA2311 code range `0x00..0xCF`.
-- Volume is capped at `0 dB` (`0xCF`), so positive gain is never commanded.
+- Reads `VOL_ADC` and maps it linearly in dB from `-95.5 dB` to `0.0 dB`, using PGA2311 codes `0x01..0xC0`.
+- PGA2311 code `0x00` is reserved for mute; code `0x01` is `-95.5 dB`, and code `0xC0` (192) is `0.0 dB`.
+- Volume is capped at `0.0 dB`, so positive gain is never commanded.
 - Volume input safety guard rejects one-off large ADC jumps; repeated suspicious jumps force `PGA2311_MUTE` active until the ADC input is stable again.
-- Supports adjustable taper with `VOLUME_CURVE_BLEND_PERCENT` in `minipreamp.ino`:
-  - `0` = linear mapping
-  - `100` = fully log-like mapping (square-law audio taper)
-  - values in-between blend linear and log-like responses
+- Half potentiometer travel gives approximately half of the configured attenuation range; perceived loudness still progresses naturally because the mapping is in dB.
 - Shows current volume on a 3-digit AS1115 display as `0..100` percent.
 - AS1115 outer digits are mapped with digit 1/3 swapped to match the current display wiring.
 - Drives one TLC5916 LED per selected input.

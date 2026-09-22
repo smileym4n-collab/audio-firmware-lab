@@ -74,8 +74,8 @@ const uint32_t VBAT_TOP_OHMS = 220000UL;     // VBAT_IN to sense node
 const uint32_t VBAT_BOTTOM_OHMS = 47000UL;   // Sense node to GND
 const uint16_t VBAT_POWER_FAIL_MV = 11500;   // Catch input loss early while control power is still alive
 const uint16_t VBAT_RECOVER_MV = 12000;      // Hysteresis if reused for diagnostics/recovery
-const uint16_t VBAT_STARTUP_BLANK_MS = 200;  // Let the VBAT sense RC/divider settle at boot
-const uint8_t VBAT_FAIL_DEBOUNCE_COUNT = 1;
+const uint16_t VBAT_STARTUP_BLANK_MS = 1000; // Let the VBAT sense RC/divider and ADC settle at boot
+const uint8_t VBAT_FAIL_DEBOUNCE_COUNT = 4;
 const uint16_t VBAT_FAST_DROP_ADC_DELTA = 24; // Fast switch-off/unplug detection before absolute threshold
 const uint16_t VBAT_FAST_DROP_SAMPLE_MS = 25; // Compare raw VBAT readings over this short interval
 const uint16_t VBAT_POWER_FAIL_ADC =
@@ -224,6 +224,7 @@ static bool isPowerFailDetected() {
   static uint16_t previousVbatRaw = 0;
   static uint32_t previousVbatSampleMillis = 0;
   static bool hasPreviousVbatRaw = false;
+  static bool hasRecoveredVbat = false;
 
   if (powerFailLatched) {
     return true;
@@ -232,7 +233,9 @@ static bool isPowerFailDetected() {
   // At boot the amps are already held safe. Give VBAT_SENSE time to rise
   // before allowing a low startup reading to latch shutdown forever.
   if ((int32_t)(millis() - powerFailCheckEnableMillis) < 0) {
+    lowCount = 0;
     hasPreviousVbatRaw = false;
+    hasRecoveredVbat = false;
     return false;
   }
 
@@ -245,6 +248,7 @@ static bool isPowerFailDetected() {
     }
   } else if (vbatRaw >= VBAT_RECOVER_ADC) {
     lowCount = 0;
+    hasRecoveredVbat = true;
   }
 
   if (lowCount >= VBAT_FAIL_DEBOUNCE_COUNT) {
@@ -258,7 +262,7 @@ static bool isPowerFailDetected() {
     return false;
   }
 
-  if ((nowMs - previousVbatSampleMillis) >= VBAT_FAST_DROP_SAMPLE_MS) {
+  if (hasRecoveredVbat && ((nowMs - previousVbatSampleMillis) >= VBAT_FAST_DROP_SAMPLE_MS)) {
     if ((previousVbatRaw > vbatRaw) &&
         ((previousVbatRaw - vbatRaw) >= VBAT_FAST_DROP_ADC_DELTA)) {
       return latchPowerFail();
