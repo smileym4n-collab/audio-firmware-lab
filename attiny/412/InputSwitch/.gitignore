@@ -1,0 +1,4 @@
+/build/
+/tests/test_fsm
+/tests/test_fsm_sanitize
+/tests/*.dSYM/
