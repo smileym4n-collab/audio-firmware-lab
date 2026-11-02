@@ -1,6 +1,6 @@
 /*
   minipreamp.ino - ATtiny1616 mini preamp controller
-  Version: 0.5.1
+  Version: 0.5.2
 
   Controls:
   - PGA2311 volume IC (stereo, capped at 0 dB max gain)
@@ -36,9 +36,9 @@ static const uint8_t PGA_CODE_MAX  = 0xC0;  // 0.0 dB (capped, no positive gain)
 static const float PGA_MIN_DB = -95.5f;
 static const float PGA_MAX_DB = 0.0f;
 
-// TLC5916 LED bits (Q0 = input 1 LED, Q1 = input 2 LED)
-static const uint8_t LED_INPUT1_MASK = 0x01;
-static const uint8_t LED_INPUT2_MASK = 0x02;
+// TLC5916 LED bits (Q1 = input 1 LED, Q0 = input 2 LED)
+static const uint8_t LED_INPUT1_MASK = 0x02;
+static const uint8_t LED_INPUT2_MASK = 0x01;
 
 // AS1115 (7-bit I2C address; set to your hardware strap/address selection)
 static const uint8_t AS1115_I2C_ADDR = 0x00;
