@@ -1,6 +1,6 @@
 # PreAmpv2
 
-Version: 0.3.23
+Version: 0.3.27
 
 Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focused on stable input relay selection, PGA2310 volume control, XU208 USB/I2S status monitoring, and 16x2 I2C LCD status.
 
@@ -8,15 +8,16 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 - MCU: ATtiny1616
 - Framework: Arduino (megaTinyCore)
 - Logic rail: 3.3V
+- Clock: 10 MHz internal (Arduino IDE: Tools -> Clock -> 10 MHz internal). The ATtiny1616 is rated to 10 MHz below 4.5V, so 20 MHz is out of spec at 3.3V. The sketch stops with a compile error if the clock is set higher than 10 MHz.
 
 ## Pin map
-- `PB0`  - Relay 1 (`DAC`)
+- `PB0`  - Relay 1 (`STREAMER`)
 - `PC0`  - Relay 2 (`AUX 1`)
 - `PC1`  - Relay 3 (`AUX 2`)
 - `PC2`  - Relay 4 (`PHONO`)
 - `PC3`  - Relay 5 (`OUTPUT`)
-- `PB5`  - Motor drive IN1 (clockwise for volume up)
-- `PB4`  - Motor drive IN2 (anti-clockwise for volume down)
+- `PB5`  - Motor drive IN1 (HIGH for volume down)
+- `PB4`  - Motor drive IN2 (HIGH for volume up)
 - `PA1`  - I2C SDA
 - `PA2`  - I2C SCL
 - `PA6`  - TSOP2438 IR input
@@ -36,18 +37,18 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
 
 ## Implemented behavior
 - 4-way input select from resistor ladder on `PA7`:
-  - ~0.58V -> DAC
+  - ~0.58V -> STREAMER
   - ~1.21V -> AUX 1
   - ~1.98V -> AUX 2
   - ~2.75V -> PHONO
 - Midpoint boundary decoding with sample debounce to reduce relay chatter.
 - Exactly one input relay is energized at a time.
 - Output relay (`PC3`) remains OFF on startup and enables after 1 second.
-- On DAC input, the PGA2310 mute is asserted if the MCP23008 is missing, the XU208 mute line is HIGH, or the detected USB sample rate is unsupported.
+- On STREAMER input, the PGA2310 mute is asserted if the MCP23008 is missing, the XU208 mute line is HIGH, or the detected USB sample rate is unsupported.
 - PGA2310 stereo volume control from `PB1` potentiometer ADC.
 - Volume command and display are capped at `+10.0 dB`.
 - 16x2 LCD displays active input and actual dB sent to PGA.
-- On DAC input, a USB sample-rate change temporarily replaces the dB display for 3 seconds.
+- On STREAMER input, a USB sample-rate change temporarily replaces the dB display for 3 seconds.
 - USB sample rates above 192 kHz are treated as unsupported and keep the PGA2310 muted.
 - Apple IR volume control on `PA6`:
   - Protocol: `Apple`
@@ -58,8 +59,10 @@ Basic ATtiny1616 preamp controller firmware for Arduino IDE (megaTinyCore), focu
   - Held button keeps the motor moving while valid repeat frames continue.
   - Unrelated commands are ignored.
 - Motorized potentiometer drive on `PB5`/`PB4`:
-  - Volume up drives clockwise (`PB5=HIGH`, `PB4=LOW`)
-  - Volume down drives anti-clockwise (`PB5=LOW`, `PB4=HIGH`)
+  - Volume up: `PB5=LOW`, `PB4=HIGH`
+  - Volume down: `PB5=HIGH`, `PB4=LOW`
+  - Direction is set by `MOTOR_VOLUME_UP_POLARITY_NORMAL = false` (inverted for current hardware); set `true` to swap.
+  - Volume down is refused while the pot ADC reads at the bottom end stop (`<= 1`), so a disconnected wiper or pot wire can block it.
   - Motor stop is enforced by deadband target, held-button repeat timeout, short-step runtime timeout, and ADC end-stop checks.
 
 ## LCD library choice
@@ -77,8 +80,13 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - The LCD alternates once per second between two test pages:
   - **Page A (input/relay):** selected input (`S:`), decoded candidate (`C:`), raw input ADC (`Axxx`), and relay states (`R:1234 OUT:x`).
   - **Page B (volume):** raw volume ADC (`VOL:`), estimated input voltage (`x.xxV`), actual applied dB (`DB:`), and PGA code (`C:`).
-- Relay state legend for `R:1234` is: DAC, AUX1, AUX2, PHONO (`1` = active output state, `0` = inactive output state).
+- Relay state legend for `R:1234` is: STREAMER, AUX1, AUX2, PHONO (`1` = active output state, `0` = inactive output state).
 - Set `PREAMPV2_LCD_DEBUG` to `0` to return to normal two-line user display mode.
+
+## IR diagnostics mode (optional, disabled by default)
+- `PREAMPV2_IR_DEBUG` defaults to `0`. Set it to `1` to show the last decoded IR frame on the bottom row for 5 seconds.
+- Format: `P<protocol> A<address> C<command>`, plus ` R` for a repeat frame (for example `P3 A00AA C0D R`).
+- Every decoded frame is shown, including ones the firmware ignores. With IRremote 4.x, protocol `3` = Apple, `7` = NEC.
 
 - Normal (non-debug) LCD dB rendering avoids float `snprintf` and uses fixed-point formatting for reliable AVR display updates.
 - Normal display centering avoids formatted width specifiers, improving compatibility on constrained AVR `printf` builds.
@@ -86,7 +94,7 @@ Wire.pins(PIN_PA1, PIN_PA2);
 
 ## Latest hardware calibration
 - Input ladder changeover thresholds were retuned from real measurements:
-  - DAC: `167`
+  - STREAMER: `167`
   - AUX 1: `364`
   - AUX 2: `608`
   - PHONO: `839`
@@ -104,13 +112,24 @@ Wire.pins(PIN_PA1, PIN_PA2);
 - With `PREAMPV2_LCD_DEBUG = 0`, the display shows:
   - Top row: selected input (centered)
   - Bottom row: volume in dB (centered)
-  - On DAC sample-rate change: detected USB rate for 3 seconds
-  - On unsupported DAC rate: `UNSUPPORTED RATE`
+  - On STREAMER sample-rate change: detected USB rate for 3 seconds
+  - On unsupported STREAMER rate: `UNSUPPORTED RATE`
   - No additional labels/text
 
 ## Volume mapping strategy
-- Pot ADC (`0..1023`) maps linearly across the PGA2310 dB attenuation range, giving roughly 50% of the range at half pot travel.
-- Mapping in dB retains a natural perceived-loudness progression without bunching most of the increase near the top of the pot.
+- The volume pot is linear (B taper). Pot ADC (`0..1023`) maps to dB through a piecewise-linear curve (`VOL_CURVE_ADC` / `VOL_CURVE_DB_TENTHS`):
+
+  | Pot travel | Dial (approx.) | dB |
+  |---|---|---|
+  | 0% | 7 o'clock | -95.5 |
+  | 10% | 8 o'clock | -60.0 |
+  | 25% | 9:30 | -35.0 |
+  | 50% | 12 o'clock | -20.0 |
+  | 75% | 2:30 | -6.0 |
+  | 100% | 5 o'clock | +10.0 |
+
+- The quiet tail is compressed into the first quarter so most of the dial covers normal listening levels at about 0.6 dB per 1% of travel (the previous straight dB mapping was about 1 dB per 1%).
+- Adjust the feel by editing the dB points; keep the ADC points ascending.
 - Result is quantized to PGA2310 half-dB steps (device-native coding).
 - Full volume sends PGA2310 code `212`, which is `+10.0 dB`.
 - Firmware displays the **actual quantized dB value** sent to the PGA2310.

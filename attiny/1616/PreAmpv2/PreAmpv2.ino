@@ -1,6 +1,6 @@
 /*
   PreAmpv2.ino - ATtiny1616 preamp controller (basic firmware)
-  Version: 0.3.23
+  Version: 0.3.27
 
   Scope in this version:
   - 4-way input relay selection from resistor-ladder ADC input
@@ -16,7 +16,14 @@
   Target:
   - ATtiny1616, megaTinyCore, Arduino IDE
   - Logic rail: 3.3V
+  - Clock: 10 MHz internal (Tools -> Clock). The ATtiny1616 is rated to
+    10 MHz at 2.7V-4.5V; 20 MHz needs 4.5V+. The OSCCFG fuse stays at
+    20 MHz and the core divides by 2 at startup.
 */
+
+#if F_CPU > 10000000UL
+#error "PreAmpv2 runs from 3.3V: set Tools -> Clock to 10 MHz internal (20 MHz needs 4.5V+)."
+#endif
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -47,6 +54,13 @@
 
 #ifndef PREAMPV2_LCD_DEBUG
 #define PREAMPV2_LCD_DEBUG 0
+#endif
+
+// IR diagnostics: show last decoded IR frame on LCD line 2 for 5 s.
+// Format: P<protocol> A<address hex> C<command hex> [R = repeat frame]
+// 0 = disabled (default), 1 = enabled.
+#ifndef PREAMPV2_IR_DEBUG
+#define PREAMPV2_IR_DEBUG 0
 #endif
 
 #if PREAMPV2_DEBUG
@@ -172,7 +186,7 @@ enum InputSource : uint8_t {
 };
 
 static const char* const INPUT_NAMES[INPUT_COUNT] = {
-  "DAC", "AUX 1", "AUX 2", "PHONO"
+  "STREAMER", "AUX 1", "AUX 2", "PHONO"
 };
 
 static LiquidCrystal_I2C g_lcd(0x27, LCD_COLS, LCD_ROWS);
@@ -216,6 +230,17 @@ static bool g_motorRunning = false;
 static uint32_t g_motorRunStartMs = 0;
 static uint32_t g_lastIrMotorCommandMs = 0;
 static uint32_t g_lastIrApplyMs = 0;
+
+#if PREAMPV2_IR_DEBUG
+// Last decoded IR frame (any protocol), captured before address/command filtering.
+static const uint16_t IR_DEBUG_SHOW_MS = 5000;
+static bool g_irDbgValid = false;
+static uint8_t g_irDbgProtocol = 0;
+static uint16_t g_irDbgAddress = 0;
+static uint8_t g_irDbgCommand = 0;
+static bool g_irDbgRepeat = false;
+static uint32_t g_irDbgMs = 0;
+#endif
 static uint32_t g_lastMotorSenseMs = 0;
 
 enum MotorDirection : uint8_t {
@@ -240,7 +265,7 @@ static MotorControlMode g_motorMode = MOTOR_MODE_IDLE;
 static const char* inputShortName(InputSource input)
 {
   switch (input) {
-    case INPUT_DAC: return "DAC";
+    case INPUT_DAC: return "STR";
     case INPUT_AUX1: return "A1";
     case INPUT_AUX2: return "A2";
     case INPUT_PHONO: return "PH";
@@ -554,13 +579,32 @@ static float pgaCodeToDb(uint8_t code)
   return -96.0f + (0.5f * static_cast<float>(code));
 }
 
+// Volume taper for the linear (B-taper) pot: piecewise-linear in dB.
+// The quiet tail is squeezed into the first quarter of travel so more of the
+// dial covers normal listening levels (about -35..-5 dB).
+// Dial guide (300 deg pot): 25% ~ 9:30, 50% = 12 o'clock, 75% ~ 2:30.
+// Tune by editing the dB points; keep ADC points ascending.
+static const uint8_t VOL_CURVE_POINTS = 6;
+static const uint16_t VOL_CURVE_ADC[VOL_CURVE_POINTS]       = {    0,  102,  256,  512,  767, 1023 };
+static const int16_t  VOL_CURVE_DB_TENTHS[VOL_CURVE_POINTS] = { -955, -600, -350, -200,  -60,  100 };
+
 static float volumeAdcToRequestedDb(uint16_t adcValue)
 {
-  // Map pot travel linearly across the attenuation range. Because the result is
-  // in dB, the control retains a natural perceived-loudness progression while
-  // avoiding the previous concentration of volume near the top of the pot.
-  const float normalized = static_cast<float>(adcValue) / 1023.0f;
-  return PGA_MIN_DB + normalized * (PGA_MAX_DB - PGA_MIN_DB);
+  if (adcValue >= VOL_CURVE_ADC[VOL_CURVE_POINTS - 1]) {
+    return VOL_CURVE_DB_TENTHS[VOL_CURVE_POINTS - 1] / 10.0f;
+  }
+
+  uint8_t i = 1;
+  while (adcValue > VOL_CURVE_ADC[i]) {
+    ++i;
+  }
+
+  // Interpolate between curve points i-1 and i.
+  const float t = static_cast<float>(adcValue - VOL_CURVE_ADC[i - 1]) /
+                  static_cast<float>(VOL_CURVE_ADC[i] - VOL_CURVE_ADC[i - 1]);
+  const float db0 = VOL_CURVE_DB_TENTHS[i - 1];
+  const float db1 = VOL_CURVE_DB_TENTHS[i];
+  return (db0 + t * (db1 - db0)) / 10.0f;
 }
 
 static void pgaWriteStereo(uint8_t code)
@@ -717,6 +761,14 @@ static void serviceIrReceiver()
   }
 
   const auto& irData = IrReceiver.decodedIRData;
+#if PREAMPV2_IR_DEBUG
+  g_irDbgValid = true;
+  g_irDbgProtocol = static_cast<uint8_t>(irData.protocol);
+  g_irDbgAddress = irData.address;
+  g_irDbgCommand = static_cast<uint8_t>(irData.command);
+  g_irDbgRepeat = (irData.flags & IRDATA_FLAGS_IS_REPEAT) != 0;
+  g_irDbgMs = millis();
+#endif
   const bool isNecFamily = (irData.protocol == NEC) || (irData.protocol == APPLE);
   if (isNecFamily) {
     handleAppleIrCommand(irData.address, irData.command);
@@ -910,6 +962,15 @@ static void updateDisplay()
   }
 
   char line[LCD_COLS + 1];
+#if PREAMPV2_IR_DEBUG
+  if (g_irDbgValid && (millis() - g_irDbgMs) < IR_DEBUG_SHOW_MS) {
+    char irText[LCD_COLS + 1];
+    snprintf(irText, sizeof(irText), "P%u A%04X C%02X%s",
+             g_irDbgProtocol, g_irDbgAddress, g_irDbgCommand,
+             g_irDbgRepeat ? " R" : "");
+    makeCenteredLcdLine(irText, line);
+  } else
+#endif
   if (g_selectedInput == INPUT_DAC && !g_expanderReady) {
     makeCenteredLcdLine("USB IO ERROR", line);
   } else if (g_selectedInput == INPUT_DAC && !g_usbRateSupported) {
