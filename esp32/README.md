@@ -8,3 +8,4 @@ This folder contains ESP32 firmware projects for DIY audio work.
 - `BTI2S/` - Bluetooth A2DP to I2S output firmware
 - `Snapclient/` - legacy notes folder
 - `snapclient/` - generic ESP32 Snapcast bench prototype (external I2S DAC)
+- `1195/` - NJW1195A volume/selector test firmware (ESP32-S3, serial control)
