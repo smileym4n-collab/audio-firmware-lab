@@ -9,7 +9,7 @@ hardware before the final ATtiny firmware is written.
 | ESP32-S3 | NJW1195A | Notes |
 |----------|----------|-------|
 | GPIO4    | 14 DATA  | |
-| GPIO5    | 15 CLOCK | idles high |
+| GPIO5    | 15 CLOCK | idles high, data read on falling edge |
 | GPIO6    | 16 LATCH | latches on rising edge |
 | GND      | 0 V / GND | common ground with the audio board |
 
@@ -36,6 +36,8 @@ Boots with Out1 on input 1, Out2 muted, volume muted at a -30 dB preset.
 ## Protocol summary (datasheet Ver 0.4E)
 
 16-bit word, MSB first: D15-D8 data, D7-D4 select address, D3-D0 chip address.
+CLOCK idles high and **data is sampled on the CLOCK falling edge**; DATA changes
+while CLOCK is high. LATCH is low during the word and latches on its rising edge.
 
 | Select | Register |
 |--------|----------|
