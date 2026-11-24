@@ -25,13 +25,20 @@ Taken from `PCM1704.kicad_sch`.
 1. Hold DF_RST low, ML high and MC/MD low for 500 ms while the rails and MCLK settle.
 2. Release DF_RST and wait 10 ms (the DF1704 needs 1024 XTI clocks).
 3. Write MODE0–MODE3.
-4. Wait 1 s and write MODE0–MODE3 again. The MCU cannot see MCLK, so this is insurance.
-5. Enter power-down sleep. Pin states are held, and nothing wakes the MCU.
+4. Enter power-down sleep. The RTC periodic interrupt (PIT, 1.024 kHz ULP
+   oscillator) wakes the CPU once a second to write MODE0–MODE3 again with the
+   same values (about 0.4 ms of activity), then it sleeps again.
 
-The firmware assumes the XMOS board's MCLK is running when this board powers
-up. Normally the XMOS board is always on and the DAC is switched on for
-listening. If the DAC is ever powered more than about 1.5 s before MCLK
-arrives, re-power the DAC.
+### Why the periodic rewrite (v1.1.0)
+The DF1704's reset only completes after 1024 MCLK cycles (SBAS099A Figs. 2–3).
+If the DAC powers up before the source sends MCLK, the DF1704 stays in
+internal reset and ignores the register writes. When MCLK arrives it starts
+on its 16-bit defaults, giving no usable output. Bench-confirmed 2026-11-24 on
+v1.0.0: powering the DAC before the I2S source needed a DAC power cycle.
+
+The MCU cannot see MCLK, so v1.1.0 rewrites the registers every second. Sound
+starts within about 1 s of MCLK appearing, in any power-up order. Change
+`REWRITE_PERIOD` to adjust the interval (0.5, 1, 2 or 4 s).
 
 ## DF1704 register settings
 From TI SBAS099A, Figures 8–10 and Table V. Words are 16-bit, MSB first: MD is
@@ -57,5 +64,7 @@ If left and right come out swapped on the bench, change `DF_MODE3` to `0x0603` (
 - millis() can be left at its default; the CPU sleeps in power-down.
 
 ## Status
-Compiles cleanly with avr-gcc 7.3 for ATtiny1614: 422 bytes before the
-megaTinyCore core, tested at 10 MHz and 20 MHz. Not yet tested on hardware.
+- v1.0.0: bench-tested working when MCLK is present at power-up. Fails if the
+  DAC powers up before the source (needs a power cycle).
+- v1.1.0: compiles cleanly with avr-gcc 7.3 for ATtiny1614 (492 bytes,
+  standalone build at 3.33 MHz). Not yet tested on hardware.

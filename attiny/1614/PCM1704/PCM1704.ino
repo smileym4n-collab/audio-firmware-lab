@@ -1,6 +1,6 @@
 /*
   Project: PCM1704 DAC (Reference Series DAC-3) DF1704 configuration
-  Version: v1.0.0
+  Version: v1.1.0
   Target:  ATtiny1614 (megaTinyCore), U7 on the PCM1704 board
 
   Pin map (PCM1704.kicad_sch, U7)
@@ -21,19 +21,31 @@
   1. Hold DF_RST low while the rails and MCLK settle.
   2. Release DF_RST and wait for the DF1704 internal initialisation.
   3. Write MODE0..MODE3.
-  4. Wait, then write MODE0..MODE3 again (insurance; the MCU cannot see MCLK).
-  5. Enter power-down sleep with all pins held, so no MCU clock runs during
-     playback (DESIGN_REVIEW M6). Nothing wakes the MCU.
+  4. Sleep in power-down. The RTC periodic interrupt (PIT, from the 32 kHz
+     ultra-low-power oscillator) wakes the CPU every REWRITE_PERIOD, which
+     writes MODE0..MODE3 again with the same values, then sleeps again.
+
+  Why the periodic rewrite (v1.1.0)
+  ---------------------------------
+  The DF1704 initialisation after reset lasts 1024 XTI (MCLK) clocks
+  (SBAS099A Figures 2 and 3). If the DAC powers up before the source is
+  sending MCLK, the DF1704 stays in its internal reset, the register writes
+  are lost, and when MCLK arrives the DF1704 comes out of reset on its
+  16-bit defaults (no usable output). Bench-confirmed 2026-11-24: powering
+  the DAC before the I2S source needed a DAC power cycle.
+  The MCU cannot see MCLK, so it rewrites the registers periodically. Writing
+  the same values while playing changes nothing in the DF1704. Each rewrite
+  is 4 x 16 control bits, about 0.4 ms of MCU activity per period.
 
   Notes
   -----
   - DF1704 timing and registers from TI SBAS099A, Figures 8-10 and Table V.
-  - Assumes the XMOS MCLK is running whenever this board is powered.
   - Brown-out detection should be enabled in the Tools menu so a supply dip
     re-runs the whole sequence (see README.md).
 */
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <util/delay.h>
 
@@ -51,9 +63,13 @@ const uint16_t DF_MODE3 = 0x0601; // SF = 44.1k (unused), CKO = XTI, SRO = sharp
 // If left and right come out swapped on the bench, set LRP: DF_MODE3 = 0x0603.
 
 // Startup sequencing
-const uint16_t RAIL_SETTLE_MS  = 500;  // Rails, DF1704 power-on reset and MCLK settle with DF_RST held low
-const uint16_t DF_INIT_MS      = 10;   // DF1704 needs 1024 XTI clocks after RST rises (about 42 us)
-const uint16_t REWRITE_DELAY_MS = 1000; // Second register write as insurance
+const uint16_t RAIL_SETTLE_MS = 500; // Rails, DF1704 power-on reset and MCLK settle with DF_RST held low
+const uint16_t DF_INIT_MS     = 10;  // DF1704 needs 1024 XTI clocks after RST rises (about 42 us)
+
+// Rewrite period: RTC PIT on the 1.024 kHz ULP clock. CYC1024 = 1 s.
+// Worst-case wait for sound after MCLK first appears is one period.
+// Options: RTC_PERIOD_CYC512_gc (0.5 s), CYC2048_gc (2 s), CYC4096_gc (4 s).
+#define REWRITE_PERIOD RTC_PERIOD_CYC1024_gc
 
 // Bit-bang half period. The DF1704 needs >= 40 ns setup/hold and a 100 ns MC cycle;
 // 2 us is ample at any clock and still only takes ~70 us per word.
@@ -91,6 +107,22 @@ static void dfWriteAll() {
   dfWriteWord(DF_MODE3);
 }
 
+static volatile uint8_t rewriteDue = 0;
+
+// Must exist: an enabled interrupt with no handler jumps to the reset vector,
+// which would pulse DF_RST and drop the audio.
+ISR(RTC_PIT_vect) {
+  RTC.PITINTFLAGS = RTC_PI_bm;
+  rewriteDue = 1;
+}
+
+static void pitStart() {
+  RTC.CLKSEL = RTC_CLKSEL_INT1K_gc; // 1.024 kHz from OSCULP32K, runs in power-down
+  while (RTC.PITSTATUS > 0) {}      // wait for PITCTRLA sync
+  RTC.PITINTCTRL = RTC_PI_bm;
+  RTC.PITCTRLA = REWRITE_PERIOD | RTC_PITEN_bm;
+}
+
 void setup() {
   // Safe states first, matching the external resistors, then enable outputs:
   // DF_RST LOW (DF1704 in reset), ML HIGH, MC/MD LOW.
@@ -113,15 +145,18 @@ void setup() {
   _delay_ms(DF_INIT_MS);
 
   dfWriteAll();
-  _delay_ms(REWRITE_DELAY_MS);
-  dfWriteAll();
 
+  pitStart();
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
+  sei();
 }
 
 void loop() {
-  // Power-down keeps all pin states. No wake source is enabled; if anything
-  // does wake the CPU, go straight back to sleep.
+  // Power-down keeps all pin states; only the PIT wakes the CPU.
   sleep_cpu();
+  if (rewriteDue) {
+    rewriteDue = 0;
+    dfWriteAll();
+  }
 }
