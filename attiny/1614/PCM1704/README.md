@@ -67,4 +67,5 @@ If left and right come out swapped on the bench, change `DF_MODE3` to `0x0603` (
 - v1.0.0: bench-tested working when MCLK is present at power-up. Fails if the
   DAC powers up before the source (needs a power cycle).
 - v1.1.0: compiles cleanly with avr-gcc 7.3 for ATtiny1614 (492 bytes,
-  standalone build at 3.33 MHz). Not yet tested on hardware.
+  standalone build at 3.33 MHz). Bench-tested 2026-11-24: sound starts in
+  either power-up order with no power cycle.
