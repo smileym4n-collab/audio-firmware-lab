@@ -33,16 +33,18 @@ This is a firmware connectivity check, not a new complete hardware review.
 | --- | --- | --- | --- |
 | 1 | VDD | +5V | Permanent controller supply |
 | 2 | PA6 | P3A_ON | HIGH energizes external G7L power relay via U4 |
-| 3 | PA7 | TOGGLE_AV | HIGH = AV; LOW = Reference; external 47k pull-down |
+| 3 | PA7 | TOGGLE_AV | LOW = Marantz/AV, HIGH = Preamp/Reference, external 47k pull-down |
 | 4 | PA1 | SOURCE_AV | HIGH = AV; LOW = Reference; drives K1/K2/K4 and LEDs |
 | 5 | PA2 | MUTE | HIGH energizes K3, disconnecting source signals and shorting amp inputs to their returns |
 | 6 | PA0 | UPDI | Programming only; never configured by this sketch |
 | 7 | PA3 | AUDIO_PRESENT_N | LOW = recent audio; external 47k/2.2u RC envelope |
 | 8 | GND | GND | Control ground |
 
-J9: pin 1 Reference throw/GND, pin 2 toggle common, pin 3 AV throw/+5V.
-An open/disconnected toggle defaults to Reference. Neither input uses an
-internal pull-up, so the external pull-down and audio envelope remain effective.
+J9 pin 1 is the Marantz throw (GND), pin 2 is toggle common, and pin 3 is the
+Preamp throw (+5 V). Earlier drawings labelled the two throws in reverse order.
+With the MCU running, R2 makes an open/disconnected toggle select Marantz.
+Both internal pull-ups are disabled so the external pull-down and audio
+envelope remain effective.
 
 K4 and both source LEDs follow SOURCE_AV in hardware. J13.1 therefore supplies
 protected 12 V whenever AV is selected, including while muted or in amplifier
@@ -105,7 +107,7 @@ and are tested across the 32-bit `millis()` rollover.
 ## Build and programming
 
 Verified toolchain: Arduino CLI 1.4.1, locally installed megaTinyCore 2.6.9,
-avr-gcc 7.3.0-atmel3.6.1-arduino7. Full sketch: **1862 / 4096 bytes flash,
+avr-gcc 7.3.0-atmel3.6.1-arduino7. Full sketch: **1866 / 4096 bytes flash,
 57 / 256 bytes static RAM**, leaving 199 bytes for stack/local variables.
 Those figures exclude run-time stack usage; this is not a measured stack peak.
 
@@ -191,8 +193,10 @@ referenced to **control GND**. Keep the isolated audio returns isolated.
   mute remains asserted for another 2 seconds. This tests logic, not sensitivity.
 - Check real audio independently on left and right, including quiet audio, bass,
   pauses and abrupt starts. Observe whether the 50 ms gap allowance needs tuning.
-- Switch sources while playing: verify the 75/150 ms sequence, pickup/release of
-  both selector relays, correct LEDs, and K4/J13 following AV. Try rapid toggling.
+- Switch sources while playing. PA7 at 0 V should select both Marantz inputs,
+  light the Marantz LED, and assert the K4/J13 trigger. PA7 at +5 V should
+  select both Preamp inputs, light the Preamp LED, and release the trigger.
+  Verify the 75/150 ms sequence and try rapid toggling.
 - Remove audio: verify ten-minute timeout, mute 200 ms before power-off, ten-second
   lockout, and fresh qualification afterwards. An isolated click must not restart
   the silence timer. For quick initial tests you can temporarily reduce

@@ -3,7 +3,7 @@
    PA2 (pin 5): MUTE -> K3. HIGH = disconnect source and short amp inputs.
    PA3 (pin 7): AUDIO_PRESENT_N, external 47k/2.2u envelope. LOW = audio.
    PA6 (pin 2): P3A_ON -> external G7L coil driver. HIGH = power ON.
-   PA7 (pin 3): TOGGLE_AV, external pull-down. HIGH = AV, LOW = Reference.
+   PA7 (pin 3): TOGGLE_AV, external pull-down. LOW = Marantz/AV, HIGH = Preamp.
    PA0 (pin 6): UPDI ONLY. VDD pin 1, control GND pin 8.
 
    Select ATtiny412, 10 MHz internal, millis enabled, BOD 4.2 V enabled,
@@ -49,10 +49,10 @@ static void applyOutputs() {
 
 void setup() {
     onBeforeInit();
-    pinMode(PIN_PA7, INPUT);  // R2 pulls open/disconnected switch to Reference.
+    pinMode(PIN_PA7, INPUT);  // R2 pulls open/disconnected switch to Marantz/AV.
     pinMode(PIN_PA3, INPUT);  // R10 external pull-up; do not change the RC.
     last_poll = millis();
-    input_switch_init(&controller, last_poll, digitalRead(PIN_PA7) == HIGH);
+    input_switch_init(&controller, last_poll, input_switch_av_requested(PORTA.IN & PIN7_bm));
     applyOutputs();
     __asm__ __volatile__("wdr");
     while (WDT.STATUS & WDT_SYNCBUSY_bm) { }
@@ -65,7 +65,7 @@ void loop() {
     if (now == last_poll) return;
     last_poll = now;
     const uint8_t inputs = PORTA.IN;
-    input_switch_update(&controller, now, !!(inputs & PIN7_bm),
+    input_switch_update(&controller, now, input_switch_av_requested(inputs & PIN7_bm),
                          !(inputs & PIN3_bm));
     applyOutputs();
     /* Service only after time advanced and control/output work completed.

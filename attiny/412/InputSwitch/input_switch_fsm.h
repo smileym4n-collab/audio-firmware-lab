@@ -21,6 +21,11 @@ typedef struct {
     uint8_t out_source_av, out_mute, out_power;
 } InputSwitch;
 
+/* Convert the PA7 level to the controller's logical AV request. */
+static inline uint8_t input_switch_av_requested(uint8_t pa7_high) {
+    return pa7_high == 0;
+}
+
 /* Inputs: toggle_av=1 for AV; audio_low=1 for a LOW AUDIO_PRESENT_N pin. */
 void input_switch_init(InputSwitch *s, uint32_t now, uint8_t toggle_av);
 void input_switch_update(InputSwitch *s, uint32_t now,

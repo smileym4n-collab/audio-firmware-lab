@@ -56,11 +56,13 @@ static void shutdown(uint8_t av) {
 }
 
 static void test_startup_and_polarity(void) {
-    for (uint8_t av = 0; av < 2; ++av) {
+    for (uint8_t pa7_high = 0; pa7_high < 2; ++pa7_high) {
+        const uint8_t av = input_switch_av_requested(pa7_high ? 0x80 : 0);
+        const uint8_t expected_source_av = pa7_high ? 0 : 1;
         now = 0;
         input_switch_init(&s, now, av);
         run(IS_STARTUP_BLANK_MS - 1, av, 1);
-        assert(!s.out_power && s.out_mute && s.out_source_av == av);
+        assert(!s.out_power && s.out_mute && s.out_source_av == expected_source_av);
         tick(av, 1);
         assert(!s.out_power);
         run(IS_AUDIO_QUALIFY_MS, av, 1);
